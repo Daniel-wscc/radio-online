@@ -1,12 +1,36 @@
 import { Component, OnInit, ElementRef, ViewChild, AfterViewInit, ChangeDetectorRef } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { RadioBrowserApi } from 'radio-browser-api';
 import VConsole from 'vconsole';
 import Hls from 'hls.js';
-import { FormsModule } from '@angular/forms';
+
+// PrimeNG 組件
+import { InputTextModule } from 'primeng/inputtext';
+import { ButtonModule } from 'primeng/button';
+import { CardModule } from 'primeng/card';
+import { SliderModule } from 'primeng/slider';
+import { DividerModule } from 'primeng/divider';
+import { AccordionModule } from 'primeng/accordion';
+import { SplitterModule } from 'primeng/splitter';
+import { TagModule } from 'primeng/tag';
 
 @Component({
   selector: 'app-radio',
-  imports: [FormsModule],
+  standalone: true,
+  imports: [
+    CommonModule,
+    FormsModule,
+    // PrimeNG 模組
+    InputTextModule,
+    ButtonModule,
+    CardModule,
+    SliderModule,
+    DividerModule,
+    AccordionModule,
+    SplitterModule,
+    TagModule
+  ],
   templateUrl: './radio.component.html',
   styleUrls: ['./radio.component.less']
 })
@@ -280,5 +304,17 @@ export class RadioComponent implements OnInit, AfterViewInit {
 
   toggleOtherStations() {
     this.showOtherStations = !this.showOtherStations;
+  }
+
+  onVolumeChange(event: any) {
+    if (this.audioPlayer?.nativeElement) {
+      this.audioPlayer.nativeElement.volume = event.value / 100;
+    }
+  }
+
+  onTimeChange(event: any) {
+    if (this.audioPlayer?.nativeElement) {
+      this.audioPlayer.nativeElement.currentTime = event.value;
+    }
   }
 }

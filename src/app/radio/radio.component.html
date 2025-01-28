@@ -2,10 +2,10 @@
   <!-- 確保 audio 元素在最上層 -->
   <audio #audioPlayer></audio>
   
-  <p-splitter [style]="{'height': '100vh'}" [panelSizes]="[30,70]">
+  <p-splitter [style]="{'height': '100vh', 'width': '100vw'}" [panelSizes]="[30,70]" [stateStorage]="'local'" [stateKey]="'splitter-state'">
     <!-- 左側電台列表面板 -->
     <ng-template pTemplate="panel1">
-      <div class="h-full bg-white">
+      <div class="h-full bg-white overflow-y-auto">
         <!-- 搜尋欄 -->
         <div class="p-4 bg-gray-800 text-white sticky top-0 space-y-2">
           <h2 class="text-xl font-bold">電台列表</h2>
@@ -72,8 +72,8 @@
 
     <!-- 右側播放控制面板 -->
     <ng-template pTemplate="panel2">
-      <div class="flex h-full items-center justify-center">
-        <p-card [style]="{'width': '100%', 'max-width': '500px'}" class="p-4">
+      <div class="w-full h-full flex items-center justify-center p-4">
+        <p-card [style]="{'width': '100%'}" class="w-full">
           <ng-template pTemplate="header">
             <div class="text-center p-4">
               <h3 class="text-2xl font-bold">{{ currentStation?.name || '未選擇電台' }}</h3>

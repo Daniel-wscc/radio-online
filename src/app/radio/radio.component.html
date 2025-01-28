@@ -5,17 +5,17 @@
   <p-splitter [style]="{'height': '100vh', 'width': '100vw'}" [panelSizes]="[30,70]" [stateStorage]="'local'" [stateKey]="'splitter-state'">
     <!-- 左側電台列表面板 -->
     <ng-template pTemplate="panel1">
-      <div class="h-full bg-white overflow-y-auto">
+      <div class="h-full bg-white overflow-y-auto w-full">
         <!-- 搜尋欄 -->
         <div class="p-4 bg-gray-800 text-white sticky top-0 space-y-2">
-          <h2 class="text-xl font-bold">電台列表</h2>
+          <h2 class="text-xl font-bold">電台列表<i class="pi pi-search"></i></h2>
           <span class="p-input-icon-left w-full">
-            <i class="pi pi-search"></i>
+            
             <input 
               type="text" 
               pInputText 
               [(ngModel)]="searchQuery"
-              (input)="filterStations()"
+              (ngModelChange)="filterStations()"
               placeholder="搜尋電台..."
               class="w-full"
             >
@@ -29,7 +29,7 @@
               @for (station of featuredStations; track station.id) {
                 <div class="station p-4 hover:bg-gray-50 cursor-pointer"
                      [class.bg-blue-50]="currentStation?.name === station.name"
-                     (click)="playStation(station.url_resolved || station.url, station.name)">
+                     (click)="selectStation(station)">
                   <div>
                     <strong class="text-lg">{{ station.name }}</strong>
                     <div class="mt-2">
@@ -51,7 +51,7 @@
               @for (station of otherStations; track station.id) {
                 <div class="station p-4 hover:bg-gray-50 cursor-pointer"
                      [class.bg-blue-50]="currentStation?.name === station.name"
-                     (click)="playStation(station.url_resolved || station.url, station.name)">
+                     (click)="selectStation(station)">
                   <div>
                     <strong class="text-lg">{{ station.name }}</strong>
                     <div class="mt-2">
@@ -95,20 +95,6 @@
               <i class="pi pi-volume-down cursor-pointer" (click)="adjustVolume(-0.1)"></i>
               <p-slider class="flex-1" [ngModel]="volume * 100" (onChange)="onVolumeChange($event)"></p-slider>
               <i class="pi pi-volume-up cursor-pointer" (click)="adjustVolume(0.1)"></i>
-            </div>
-          </div>
-
-          <!-- 播放進度 -->
-          <div class="mb-4">
-            <p-slider 
-              class="w-full" 
-              [ngModel]="currentTime"
-              [max]="duration || 100"
-              (onChange)="onTimeChange($event)"
-            ></p-slider>
-            <div class="flex justify-between text-sm text-gray-500">
-              <span>{{ formatTime(currentTime) }}</span>
-              <span>{{ formatTime(duration) }}</span>
             </div>
           </div>
 

@@ -191,8 +191,13 @@ export class RadioComponent implements OnInit, AfterViewInit {
   togglePlay() {
     const audio = this.audioPlayer.nativeElement;
     if (audio.paused) {
-      audio.play();
-      this.isPlaying = true;
+      // 重新載入當前電台，以獲取最新的直播進度
+      if (this.currentStation) {
+        const url = this.currentStation.url_resolved || this.currentStation.url;
+        audio.src = url;  // 重新設定串流源
+        audio.play();
+        this.isPlaying = true;
+      }
     } else {
       audio.pause();
       this.isPlaying = false;
@@ -269,31 +274,9 @@ export class RadioComponent implements OnInit, AfterViewInit {
     }
   }
 
-  // 格式化時間
-  formatTime(seconds: number): string {
-    if (isNaN(seconds)) return '00:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  }
-
-  // 跳轉到指定時間
-  seekTo(event: MouseEvent) {
-    const element = event.currentTarget as HTMLElement;
-    const rect = element.getBoundingClientRect();
-    const ratio = (event.clientX - rect.left) / rect.width;
-    this.audioPlayer.nativeElement.currentTime = ratio * this.duration;
-  }
-
   // 添加一個 getter 方法來安全地獲取音量
   get volume(): number {
     return this.audioPlayer?.nativeElement?.volume || 0;
-  }
-
-  // 添加一個方法來計算進度條寬度
-  getProgressWidth(): string {
-    if (!this.duration) return '0%';
-    return `${(this.currentTime / (this.duration || 1) * 100)}%`;
   }
 
   // 添加一個方法來計算音量條寬度
@@ -312,9 +295,8 @@ export class RadioComponent implements OnInit, AfterViewInit {
     }
   }
 
-  onTimeChange(event: any) {
-    if (this.audioPlayer?.nativeElement) {
-      this.audioPlayer.nativeElement.currentTime = event.value;
-    }
+  // 新增選擇電台的方法
+  selectStation(station: any) {
+    this.currentStation = station;
   }
 }

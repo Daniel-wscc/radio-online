@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RadioBrowserApi } from 'radio-browser-api';
 import VConsole from 'vconsole';
 import Hls from 'hls.js';
+import { RadioSyncService, RadioState } from '../services/radio-sync.service';
 
 // PrimeNG 組件
 import { InputTextModule } from 'primeng/inputtext';
@@ -91,11 +92,38 @@ export class RadioComponent implements OnInit, AfterViewInit {
     }
   ];
 
-  constructor(private cdr: ChangeDetectorRef) {
+  constructor(
+    private cdr: ChangeDetectorRef,
+    private radioSync: RadioSyncService
+  ) {
     const randomServer = this.RADIO_BROWSER_SERVERS[
       Math.floor(Math.random() * this.RADIO_BROWSER_SERVERS.length)
     ];
     this.api = new RadioBrowserApi('TestRadioBrowser');
+
+    // 訂閱狀態更新
+    this.radioSync.radioState$.subscribe((state: RadioState) => {
+      if (state.currentStation?.name !== this.currentStation?.name) {
+        this.currentStation = state.currentStation;
+        if (state.currentStation) {
+          const url = state.currentStation.url_resolved || state.currentStation.url;
+          this.playStation(url, state.currentStation.name);
+        }
+      }
+
+      if (state.isPlaying !== this.isPlaying) {
+        if (state.isPlaying) {
+          this.audioPlayer.nativeElement.play();
+        } else {
+          this.audioPlayer.nativeElement.pause();
+        }
+        this.isPlaying = state.isPlaying;
+      }
+
+      if (state.volume !== this.audioPlayer.nativeElement.volume) {
+        this.audioPlayer.nativeElement.volume = state.volume;
+      }
+    });
   }
 
   ngAfterViewInit() {
@@ -191,10 +219,9 @@ export class RadioComponent implements OnInit, AfterViewInit {
   togglePlay() {
     const audio = this.audioPlayer.nativeElement;
     if (audio.paused) {
-      // 重新載入當前電台，以獲取最新的直播進度
       if (this.currentStation) {
         const url = this.currentStation.url_resolved || this.currentStation.url;
-        audio.src = url;  // 重新設定串流源
+        audio.src = url;
         audio.play();
         this.isPlaying = true;
       }
@@ -202,6 +229,12 @@ export class RadioComponent implements OnInit, AfterViewInit {
       audio.pause();
       this.isPlaying = false;
     }
+
+    this.radioSync.updateState({
+      currentStation: this.currentStation,
+      isPlaying: this.isPlaying,
+      volume: audio.volume
+    });
   }
 
   adjustVolume(change: number) {
@@ -292,11 +325,21 @@ export class RadioComponent implements OnInit, AfterViewInit {
   onVolumeChange(event: any) {
     if (this.audioPlayer?.nativeElement) {
       this.audioPlayer.nativeElement.volume = event.value / 100;
+      this.radioSync.updateState({
+        currentStation: this.currentStation,
+        isPlaying: this.isPlaying,
+        volume: this.audioPlayer.nativeElement.volume
+      });
     }
   }
 
   // 新增選擇電台的方法
   selectStation(station: any) {
     this.currentStation = station;
+    this.radioSync.updateState({
+      currentStation: station,
+      isPlaying: this.isPlaying,
+      volume: this.audioPlayer.nativeElement.volume
+    });
   }
 }

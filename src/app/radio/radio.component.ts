@@ -216,27 +216,6 @@ export class RadioComponent implements OnInit, AfterViewInit {
     );
   }
 
-  togglePlay() {
-    const audio = this.audioPlayer.nativeElement;
-    if (audio.paused) {
-      if (this.currentStation) {
-        const url = this.currentStation.url_resolved || this.currentStation.url;
-        audio.src = url;
-        audio.play();
-        this.isPlaying = true;
-      }
-    } else {
-      audio.pause();
-      this.isPlaying = false;
-    }
-
-    this.radioSync.updateState({
-      currentStation: this.currentStation,
-      isPlaying: this.isPlaying,
-      volume: audio.volume
-    });
-  }
-
   adjustVolume(change: number) {
     const audio = this.audioPlayer.nativeElement;
     let newVolume = Math.min(Math.max(audio.volume + change, 0), 1);
@@ -336,9 +315,13 @@ export class RadioComponent implements OnInit, AfterViewInit {
   // 新增選擇電台的方法
   selectStation(station: any) {
     this.currentStation = station;
+    const url = station.url_resolved || station.url;
+    this.playStation(url, station.name);  // 直接播放
+    this.isPlaying = true;  // 設置播放狀態
+    
     this.radioSync.updateState({
       currentStation: station,
-      isPlaying: this.isPlaying,
+      isPlaying: true,  // 永遠為 true
       volume: this.audioPlayer.nativeElement.volume
     });
   }

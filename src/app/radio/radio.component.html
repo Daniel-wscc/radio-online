@@ -98,15 +98,6 @@
             </div>
           </div>
 
-          <!-- 播放控制 -->
-          <div class="flex justify-center">
-            <p-button 
-              [icon]="isPlaying ? 'pi pi-pause' : 'pi pi-play'"
-              [label]="isPlaying ? '暫停' : '播放'"
-              (onClick)="togglePlay()"
-              [disabled]="!currentStation"
-            ></p-button>
-          </div>
         </p-card>
       </div>
     </ng-template>

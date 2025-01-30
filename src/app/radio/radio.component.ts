@@ -38,34 +38,16 @@ import { TagModule } from 'primeng/tag';
 export class RadioComponent implements OnInit, AfterViewInit {
   @ViewChild('audioPlayer') audioPlayer!: ElementRef<HTMLAudioElement>;
   private isAudioPlayerReady = false;
+  private hasUserInteracted = false;
   
   private vConsole = new VConsole();
-  private RADIO_BROWSER_SERVERS = [
-    'de1.api.radio-browser.info',
-    'at1.api.radio-browser.info',
-    'nl1.api.radio-browser.info',
-    'fr1.api.radio-browser.info'
-  ];
-  private api: RadioBrowserApi;
   public stations: any[] = [];
   protected Array = Array;
   public currentStation: any = null;
   public isPlaying: boolean = false;
   public currentTime: number = 0;
   public duration: number = 0;
-  public searchQuery: string = '';
-  public filteredStations: any[] = [];
   public featuredStations: any[] = [];
-  public otherStations: any[] = [];
-  public showOtherStations: boolean = false;
-
-  // 精選電台名單
-  private featuredStationNames = [
-    'Hit FM台北之音廣播', 
-    '飛碟電台 FM92.1 UFO Radio Live Stream',
-    '大漢之音 FM97.1',
-    '中廣流行網 I like radio FM103.3 Live Stream',
-  ];
 
   // 自定義電台資料
   private customStations = [
@@ -74,21 +56,28 @@ export class RadioComponent implements OnInit, AfterViewInit {
       url: 'https://stream.rcs.revma.com/em90w4aeewzuv',
       tags: ['不明'],
       codec: 'MP3',
-      id: 'custom_1'  // 自定義 ID 避免與 API 電台衝突
+      id: 'custom_1'
     },
     {
-      name: '大漢之音 FM97.1',
-      url: 'http://taiwan-radio.tw:8000/ML.FM97.1',
+      name: '飛揚調頻 FM89.5 Live Stream',
+      url: 'https://stream.rcs.revma.com/e0tdah74hv8uv',
       tags: ['不明'],
       codec: 'MP3',
-      id: 'custom_2'  // 自定義 ID 避免與 API 電台衝突
+      id: 'custom_2'
     },
     {
       name: '中廣流行網 I like radio FM103.3 Live Stream',
       url: 'https://stream.rcs.revma.com/aw9uqyxy2tzuv',
       tags: ['不明'],
       codec: 'MP3',
-      id: 'custom_3'  // 自定義 ID 避免與 API 電台衝突
+      id: 'custom_3'
+    },
+    {
+      name: '亞洲電台 FM92.7 Live Stream',
+      url: 'https://stream.rcs.revma.com/xpgtqc74hv8uv',
+      tags: ['不明'],
+      codec: 'MP3',
+      id: 'custom_4'
     }
   ];
 
@@ -96,17 +85,12 @@ export class RadioComponent implements OnInit, AfterViewInit {
     private cdr: ChangeDetectorRef,
     private radioSync: RadioSyncService
   ) {
-    const randomServer = this.RADIO_BROWSER_SERVERS[
-      Math.floor(Math.random() * this.RADIO_BROWSER_SERVERS.length)
-    ];
-    this.api = new RadioBrowserApi('TestRadioBrowser');
-
     // 訂閱狀態更新
     this.radioSync.radioState$.subscribe((state: RadioState) => {
       if (state.currentStation?.name !== this.currentStation?.name) {
         this.currentStation = state.currentStation;
         if (state.currentStation) {
-          const url = state.currentStation.url_resolved || state.currentStation.url;
+          const url = state.currentStation.url;  // 移除 url_resolved
           this.playStation(url, state.currentStation.name);
         }
       }
@@ -138,82 +122,20 @@ export class RadioComponent implements OnInit, AfterViewInit {
     } else {
       console.error('Audio player not found');
     }
-    this.fetchStations();
+    this.initializeStations();  // 改用新方法初始化電台
     this.cdr.detectChanges();
   }
 
   ngOnInit() {
-    // 移除 fetchStations，改放到 ngAfterViewInit
+    document.addEventListener('click', () => {
+      this.hasUserInteracted = true;
+    }, { once: true });
   }
 
-  async fetchStations() {
-    try {
-      const stations = await this.api.searchStations({
-        countryCode: 'TW',
-        limit: 500,
-        hideBroken: true,
-        order: 'clickCount',
-        reverse: true
-      });
-      
-      // 合併 API 電台和自定義電台
-      this.stations = [...this.customStations, ...this.filterValidStations(stations)];
-      
-      // 分類電台
-      this.featuredStations = this.stations.filter(station => 
-        this.featuredStationNames.includes(station.name)
-      );
-      
-      this.otherStations = this.stations.filter(station => 
-        !this.featuredStationNames.includes(station.name)
-      );
-      
-      this.filteredStations = this.stations;
-    } catch (error) {
-      console.error("無法取得電台資料：", error);
-    }
-  }
-
-  private filterValidStations(stations: any[]) {
-    return stations.filter(station => {
-      const streamUrl = station.url_resolved || station.url;
-      const hasValidName = station.name && station.name.trim().length > 0;
-      return hasValidName && streamUrl;
-    });
-  }
-
-  filterStations() {
-    if (!this.searchQuery.trim()) {
-      // 重置為原始狀態
-      this.featuredStations = this.stations.filter(station => 
-        this.featuredStationNames.includes(station.name)
-      );
-      this.otherStations = this.stations.filter(station => 
-        !this.featuredStationNames.includes(station.name)
-      );
-      return;
-    }
-
-    const query = this.searchQuery.toLowerCase().trim();
-    const filteredStations = this.stations.filter(station => {
-      return (
-        station.name.toLowerCase().includes(query) ||
-        (station.tags && (
-          Array.isArray(station.tags) 
-            ? station.tags.some((tag: string) => tag.toLowerCase().includes(query))
-            : station.tags.toLowerCase().includes(query)
-        ))
-      );
-    });
-
-    // 更新兩個列表
-    this.featuredStations = filteredStations.filter(station => 
-      this.featuredStationNames.includes(station.name)
-    );
-    
-    this.otherStations = filteredStations.filter(station => 
-      !this.featuredStationNames.includes(station.name)
-    );
+  // 簡化初始化電台列表方法
+  private initializeStations() {
+    this.stations = this.customStations;
+    this.featuredStations = this.stations;
   }
 
   adjustVolume(change: number) {
@@ -295,10 +217,6 @@ export class RadioComponent implements OnInit, AfterViewInit {
   getVolumeWidth(): string {
     if (!this.audioPlayer?.nativeElement) return '0%';
     return `${(this.audioPlayer.nativeElement.volume * 100)}%`;
-  }
-
-  toggleOtherStations() {
-    this.showOtherStations = !this.showOtherStations;
   }
 
   onVolumeChange(event: any) {

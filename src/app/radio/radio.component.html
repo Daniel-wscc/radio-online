@@ -1,72 +1,35 @@
 <div class="flex h-screen bg-gray-100">
   <!-- 確保 audio 元素在最上層 -->
-  <audio #audioPlayer></audio>
+  <audio #audioPlayer muted autoplay crossorigin="anonymous"></audio>
   
   <p-splitter [style]="{'height': '100vh', 'width': '100vw'}" [panelSizes]="[30,70]" [stateStorage]="'local'" [stateKey]="'splitter-state'">
     <!-- 左側電台列表面板 -->
     <ng-template pTemplate="panel1">
       <div class="h-full bg-white overflow-y-auto w-full">
-        <!-- 搜尋欄 -->
-        <div class="p-4 bg-gray-800 text-white sticky top-0 space-y-2">
-          <h2 class="text-xl font-bold">電台列表<i class="pi pi-search"></i></h2>
-          <span class="p-input-icon-left w-full">
-            
-            <input 
-              type="text" 
-              pInputText 
-              [(ngModel)]="searchQuery"
-              (ngModelChange)="filterStations()"
-              placeholder="搜尋電台..."
-              class="w-full"
-            >
-          </span>
+        <!-- 標題 -->
+        <div class="p-4 bg-gray-800 text-white sticky top-0">
+          <h2 class="text-xl font-bold">電台列表</h2>
         </div>
         
-        <!-- 精選電台 -->
-        <p-accordion [activeIndex]="0">
-          <p-accordionTab header="精選電台">
-            <div class="divide-y divide-gray-200">
-              @for (station of featuredStations; track station.id) {
-                <div class="station p-4 hover:bg-gray-50 cursor-pointer"
-                     [class.bg-blue-50]="currentStation?.name === station.name"
-                     (click)="selectStation(station)">
-                  <div>
-                    <strong class="text-lg">{{ station.name }}</strong>
-                    <div class="mt-2">
-                      @if (station.tags) {
-                        @for (tag of (Array.isArray(station.tags) ? station.tags : [station.tags]); track tag) {
-                          <p-tag [value]="tag" class="mr-1" severity="info"></p-tag>
-                        }
-                      }
-                    </div>
-                  </div>
+        <!-- 電台列表 -->
+        <div class="divide-y divide-gray-200">
+          @for (station of featuredStations; track station.id) {
+            <div class="station p-4 hover:bg-gray-50 cursor-pointer"
+                 [class.bg-blue-50]="currentStation?.name === station.name"
+                 (click)="selectStation(station)">
+              <div>
+                <strong class="text-lg">{{ station.name }}</strong>
+                <div class="mt-2">
+                  @if (station.tags) {
+                    @for (tag of (Array.isArray(station.tags) ? station.tags : [station.tags]); track tag) {
+                      <p-tag [value]="tag" class="mr-1" severity="info"></p-tag>
+                    }
+                  }
                 </div>
-              }
+              </div>
             </div>
-          </p-accordionTab>
-
-          <!-- 其他電台 -->
-          <p-accordionTab header="其他電台 ({{otherStations.length}})">
-            <div class="divide-y divide-gray-200">
-              @for (station of otherStations; track station.id) {
-                <div class="station p-4 hover:bg-gray-50 cursor-pointer"
-                     [class.bg-blue-50]="currentStation?.name === station.name"
-                     (click)="selectStation(station)">
-                  <div>
-                    <strong class="text-lg">{{ station.name }}</strong>
-                    <div class="mt-2">
-                      @if (station.tags) {
-                        @for (tag of (Array.isArray(station.tags) ? station.tags : [station.tags]); track tag) {
-                          <p-tag [value]="tag" class="mr-1" severity="info"></p-tag>
-                        }
-                      }
-                    </div>
-                  </div>
-                </div>
-              }
-            </div>
-          </p-accordionTab>
-        </p-accordion>
+          }
+        </div>
       </div>
     </ng-template>
 
@@ -86,8 +49,6 @@
               }
             </div>
           </ng-template>
-
-          <audio #audioPlayer></audio>
 
           <!-- 音量控制 -->
           <div class="mb-4">

@@ -9,6 +9,7 @@
   --text-color: #1F2937;
   --bg-color: #FFFFFF;
   --card-bg: #FFFFFF;
+  --selected-bg: #EFF6FF;  // 淺藍色背景
 }
 
 [data-theme='dark'] {
@@ -16,6 +17,7 @@
   --text-color: #F3F4F6;
   --bg-color: #1F2937;
   --card-bg: #374151;
+  --selected-bg: #1E40AF;  // 深藍色背景
 }
 
 body {
@@ -51,5 +53,15 @@ body {
     &:hover {
       background-color: rgba(255, 255, 255, 0.1);
     }
+
+    &.selected {
+      background-color: var(--selected-bg);
+      color: white;
+    }
   }
+}
+
+// 一般主題的選中狀態
+.station.selected {
+  background-color: var(--selected-bg);
 }

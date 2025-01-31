@@ -9,6 +9,7 @@ import { RouterModule } from '@angular/router';
 import { YouTubePlayerModule } from '@angular/youtube-player';
 import { TextareaModule } from 'primeng/textarea';
 import { YoutubeRadioComponent } from '../youtube-radio/youtube-radio.component';
+import { ThemeService } from '../services/theme.service';
 
 // PrimeNG 組件
 import { InputTextModule } from 'primeng/inputtext';
@@ -102,7 +103,8 @@ export class RadioComponent implements OnInit, AfterViewInit {
 
   constructor(
     private cdr: ChangeDetectorRef,
-    private radioSync: RadioSyncService
+    private radioSync: RadioSyncService,
+    private themeService: ThemeService
   ) {
     // 訂閱狀態更新
     this.radioSync.radioState$.subscribe((state: RadioState) => {
@@ -127,6 +129,12 @@ export class RadioComponent implements OnInit, AfterViewInit {
         this.audioPlayer.nativeElement.volume = state.volume;
       }
     });
+
+    // 訂閱主題變化
+    this.themeService.darkMode$.subscribe(isDark => {
+      this.isDarkTheme = isDark;
+      this.cdr.detectChanges();
+    });
   }
 
   ngAfterViewInit() {
@@ -149,6 +157,7 @@ export class RadioComponent implements OnInit, AfterViewInit {
     document.addEventListener('click', () => {
       this.hasUserInteracted = true;
     }, { once: true });
+    
     // 檢查本地儲存的主題設定
     const savedTheme = localStorage.getItem('theme');
     this.isDarkTheme = savedTheme === 'dark';
@@ -173,7 +182,7 @@ export class RadioComponent implements OnInit, AfterViewInit {
     
     if (!this.isAudioPlayerReady) {
       console.error('Audio player is not ready yet');
-      alert('播放器尚未準備好，請稍候再試。');
+      // alert('播放器尚未準備好，請稍候再試。');
       return;
     }
     
@@ -203,12 +212,12 @@ export class RadioComponent implements OnInit, AfterViewInit {
                 串流網址: url,
                 錯誤訊息: error.message
               });
-              alert(`無法播放電台 ${stationName}，請嘗試其他電台。`);
+              // alert(`無法播放電台 ${stationName}，請嘗試其他電台。`);
             });
           });
         } else {
           console.error("瀏覽器不支援 HLS");
-          alert("您的瀏覽器不支援此格式的串流播放");
+          // alert("您的瀏覽器不支援此格式的串流播放");
         }
       } else {
         audio.src = url;
@@ -218,7 +227,7 @@ export class RadioComponent implements OnInit, AfterViewInit {
             串流網址: url,
             錯誤訊息: error.message
           });
-          alert(`無法播放電台 ${stationName}，請嘗試其他電台。`);
+          // alert(`無法播放電台 ${stationName}，請嘗試其他電台。`);
         });
       }
 
@@ -227,7 +236,7 @@ export class RadioComponent implements OnInit, AfterViewInit {
       this.duration = 0;
     } catch (error) {
       console.error("設定音源時發生錯誤：", error);
-      alert("播放器發生錯誤，請重新整理頁面。");
+      // alert("播放器發生錯誤，請重新整理頁面。");
     }
   }
 
@@ -328,18 +337,14 @@ export class RadioComponent implements OnInit, AfterViewInit {
   }
 
   toggleTheme() {
-    this.isDarkTheme = !this.isDarkTheme;
-    localStorage.setItem('theme', this.isDarkTheme ? 'dark' : 'light');
-    this.applyTheme();
+    this.themeService.toggleDarkMode();
   }
 
   private applyTheme() {
     if (this.isDarkTheme) {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      document.body.classList.add('dark');
+      document.documentElement.classList.add('dark');
     } else {
-      document.documentElement.setAttribute('data-theme', 'light');
-      document.body.classList.remove('dark');
+      document.documentElement.classList.remove('dark');
     }
   }
 }

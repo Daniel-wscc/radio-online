@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { YouTubePlayer, YouTubePlayerModule } from '@angular/youtube-player';
@@ -6,6 +6,7 @@ import { TextareaModule } from 'primeng/textarea';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
 import { RadioSyncService, RadioState } from '../services/radio-sync.service';
+import { ThemeService } from '../services/theme.service';
 
 @Component({
   selector: 'app-youtube-radio',
@@ -19,21 +20,7 @@ import { RadioSyncService, RadioState } from '../services/radio-sync.service';
     CardModule
   ],
   templateUrl: './youtube-radio.component.html',
-  styles: [`
-    :host {
-      display: block;
-      height: 100%;
-      width: 100%;
-    }
-    
-    ::ng-deep .p-card {
-      width: 100% !important;
-    }
-
-    ::ng-deep youtube-player {
-      width: 100% !important;
-    }
-  `]
+  styleUrls: ['./youtube-radio.component.less']
 })
 export class YoutubeRadioComponent implements OnInit, OnDestroy {
   @ViewChild('youtubePlayer') youtubePlayer!: YouTubePlayer;
@@ -48,7 +35,13 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy {
     widget_referrer: window.location.href
   };
 
-  constructor(private radioSync: RadioSyncService) {
+  isDarkTheme = false;
+
+  constructor(
+    private radioSync: RadioSyncService,
+    private themeService: ThemeService,
+    private cdr: ChangeDetectorRef
+  ) {
     // 訂閱狀態更新
     this.radioSync.radioState$.subscribe((state: RadioState) => {
       if (state.youtubeState) {
@@ -69,6 +62,12 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy {
           }
         }
       }
+    });
+
+    // 訂閱主題變化
+    this.themeService.darkMode$.subscribe(isDark => {
+      this.isDarkTheme = isDark;
+      this.cdr.detectChanges();
     });
   }
 

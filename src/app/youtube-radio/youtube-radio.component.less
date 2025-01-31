@@ -1,0 +1,65 @@
+  ::ng-deep .p-card {
+    width: 100% !important;
+  }
+
+  ::ng-deep youtube-player {
+    width: 100% !important;
+  }
+
+:host {
+    display: block;
+    height: 100%;
+    width: 100%;
+    overflow-y: auto;
+  }
+  
+  .youtube-player-container {
+    position: relative;
+    width: 100%;
+    padding-top: 56.25%; // 16:9 比例
+  
+    youtube-player {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+  }
+  
+  ::ng-deep {
+    .dark-theme-card {
+      background-color: var(--card-bg) !important;
+      
+      .p-card-content {
+        color: var(--text-color);
+      }
+    }
+  
+    .p-card {
+      height: 100%;
+      
+      .p-card-body {
+        height: 100%;
+      }
+    }
+  
+    .p-inputtextarea {
+      width: 100%;
+    }
+  }
+  
+  // RWD 調整
+  @media (max-width: 640px) {
+    :host {
+      height: auto;
+    }
+  
+    .p-card {
+      margin: 0 !important;
+    }
+  
+    .youtube-player-container {
+      padding-top: 75%; // 在小螢幕上使用 4:3 比例
+    }
+  }

@@ -28,3 +28,16 @@
   button:hover {
     background-color: #0056b3;
   }
+
+  :host ::ng-deep {
+    .dark-theme-card {
+      .p-card {
+        background: var(--surface-900);
+        color: white;
+      }
+      
+      .p-card-header, .p-card-content, .p-card-footer {
+        color: white;
+      }
+    }
+  }

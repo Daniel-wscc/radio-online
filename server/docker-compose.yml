@@ -1,0 +1,9 @@
+version: '3'
+services:
+  radio-server:
+    build: .
+    ports:
+      - "1034:1034"
+    restart: always
+    environment:
+      - NODE_ENV=production 

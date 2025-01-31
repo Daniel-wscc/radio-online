@@ -8,7 +8,7 @@ import Aura from '@primeng/themes/aura';
 
 import { routes } from './app.routes';
 
-const config = { url: 'http://192.168.0.10:3000', options: {} };
+const config = { url: 'https://radio.wscc1031.synology.me', options: {} };
 
 export const appConfig: ApplicationConfig = {
   providers: [

@@ -5,6 +5,10 @@ import { RadioBrowserApi } from 'radio-browser-api';
 import VConsole from 'vconsole';
 import Hls from 'hls.js';
 import { RadioSyncService, RadioState } from '../services/radio-sync.service';
+import { RouterModule } from '@angular/router';
+import { YouTubePlayerModule } from '@angular/youtube-player';
+import { TextareaModule } from 'primeng/textarea';
+import { YoutubeRadioComponent } from '../youtube-radio/youtube-radio.component';
 
 // PrimeNG 組件
 import { InputTextModule } from 'primeng/inputtext';
@@ -22,6 +26,7 @@ import { TagModule } from 'primeng/tag';
   imports: [
     CommonModule,
     FormsModule,
+    RouterModule,
     // PrimeNG 模組
     InputTextModule,
     ButtonModule,
@@ -30,7 +35,10 @@ import { TagModule } from 'primeng/tag';
     DividerModule,
     AccordionModule,
     SplitterModule,
-    TagModule
+    TagModule,
+    YouTubePlayerModule,
+    TextareaModule,
+    YoutubeRadioComponent
   ],
   templateUrl: './radio.component.html',
   styleUrls: ['./radio.component.less']
@@ -48,6 +56,17 @@ export class RadioComponent implements OnInit, AfterViewInit {
   public currentTime: number = 0;
   public duration: number = 0;
   public featuredStations: any[] = [];
+  isYoutubeMode: boolean = false;
+  youtubeUrlInput: string = '';
+  youtubePlaylist: Array<{ id: string, title?: string }> = [];
+  currentVideoId: string | null = null;
+  currentYoutubeIndex: number = -1;
+  isDarkTheme = false;
+
+  playerConfig = {
+    origin: window.location.origin,
+    widget_referrer: window.location.href
+  };
 
   // 自定義電台資料
   private customStations = [
@@ -130,6 +149,10 @@ export class RadioComponent implements OnInit, AfterViewInit {
     document.addEventListener('click', () => {
       this.hasUserInteracted = true;
     }, { once: true });
+    // 檢查本地儲存的主題設定
+    const savedTheme = localStorage.getItem('theme');
+    this.isDarkTheme = savedTheme === 'dark';
+    this.applyTheme();
   }
 
   // 簡化初始化電台列表方法
@@ -232,15 +255,91 @@ export class RadioComponent implements OnInit, AfterViewInit {
 
   // 新增選擇電台的方法
   selectStation(station: any) {
+    this.isYoutubeMode = false;  // 切換回 radio 模式
     this.currentStation = station;
     const url = station.url_resolved || station.url;
-    this.playStation(url, station.name);  // 直接播放
-    this.isPlaying = true;  // 設置播放狀態
+    this.playStation(url, station.name);
     
     this.radioSync.updateState({
       currentStation: station,
-      isPlaying: true,  // 永遠為 true
+      isPlaying: true,
       volume: this.audioPlayer.nativeElement.volume
     });
+  }
+
+  // 加入 YouTube 相關方法
+  switchToYoutube() {
+    this.isYoutubeMode = true;
+    if (this.audioPlayer?.nativeElement) {
+      this.audioPlayer.nativeElement.pause();
+    }
+  }
+
+  switchToRadio() {
+    this.isYoutubeMode = false;
+    this.currentVideoId = null;
+  }
+
+  loadYoutubePlaylist() {
+    const urls = this.youtubeUrlInput.split('\n').filter(url => url.trim());
+    const newVideos = urls.map(url => {
+      const videoId = this.extractVideoId(url);
+      return { id: videoId };
+    }).filter(video => video.id);
+
+    this.youtubePlaylist = [...this.youtubePlaylist, ...newVideos];
+    this.youtubeUrlInput = '';
+
+    if (this.currentYoutubeIndex === -1 && this.youtubePlaylist.length > 0) {
+      this.playYoutubeIndex(0);
+    }
+  }
+
+  private extractVideoId(url: string): string {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : '';
+  }
+
+  playYoutubeIndex(index: number) {
+    if (index >= 0 && index < this.youtubePlaylist.length) {
+      this.currentYoutubeIndex = index;
+      this.currentVideoId = this.youtubePlaylist[index].id;
+      this.switchToYoutube();
+    }
+  }
+
+  playNextYoutube() {
+    if (this.currentYoutubeIndex < this.youtubePlaylist.length - 1) {
+      this.playYoutubeIndex(this.currentYoutubeIndex + 1);
+    }
+  }
+
+  playPreviousYoutube() {
+    if (this.currentYoutubeIndex > 0) {
+      this.playYoutubeIndex(this.currentYoutubeIndex - 1);
+    }
+  }
+
+  onYoutubePlayerStateChange(event: YT.OnStateChangeEvent) {
+    if (event.data === YT.PlayerState.ENDED) {
+      this.playNextYoutube();
+    }
+  }
+
+  toggleTheme() {
+    this.isDarkTheme = !this.isDarkTheme;
+    localStorage.setItem('theme', this.isDarkTheme ? 'dark' : 'light');
+    this.applyTheme();
+  }
+
+  private applyTheme() {
+    if (this.isDarkTheme) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.body.classList.add('dark');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light');
+      document.body.classList.remove('dark');
+    }
   }
 }

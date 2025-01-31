@@ -7,6 +7,12 @@ export interface RadioState {
   isPlaying: boolean;
   volume: number;
   isMuted?: boolean;
+  youtubeState?: {
+    playlist: Array<{ id: string, title?: string }>;
+    currentIndex: number;
+    currentVideoId: string | null;
+    isYoutubeMode: boolean;
+  };
 }
 
 @Injectable({
@@ -15,7 +21,13 @@ export interface RadioState {
 export class RadioSyncService {
   private radioState = new BehaviorSubject<RadioState>({
     isPlaying: false,
-    volume: 1
+    volume: 1,
+    youtubeState: {
+      playlist: [],
+      currentIndex: -1,
+      currentVideoId: null,
+      isYoutubeMode: false
+    }
   });
 
   radioState$ = this.radioState.asObservable();

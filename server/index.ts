@@ -1,19 +1,49 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import cors from 'cors';
 
 const app = express();
+
+// 加入 Express CORS 中間件
+app.use(cors({
+  origin: [
+    "http://localhost:4200", 
+    "http://192.168.0.10:4200", 
+    "https://demo.wscc1031.synology.me",
+    "https://radio.wscc1031.synology.me"
+  ],
+  credentials: true,
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ["http://localhost:4200", "http://192.168.0.10:4200"],
-    methods: ["GET", "POST"]
-  }
+    origin: [
+      "http://localhost:4200", 
+      "http://192.168.0.10:4200", 
+      "https://demo.wscc1031.synology.me",
+      "https://radio.wscc1031.synology.me"
+    ],
+    methods: ["GET", "POST", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  },
+  allowEIO3: true,
+  transports: ['websocket', 'polling']
 });
 
 let currentRadioState = {
   isPlaying: false,
-  volume: 1
+  volume: 1,
+  youtubeState: {
+    playlist: [],
+    currentIndex: -1,
+    currentVideoId: null,
+    isYoutubeMode: false
+  }
 };
 
 io.on('connection', (socket) => {
@@ -34,6 +64,6 @@ io.on('connection', (socket) => {
   });
 });
 
-httpServer.listen(3000, () => {
-  console.log('伺服器運行在 port 3000');
+httpServer.listen(1034, () => {
+  console.log('伺服器運行在 port 1034');
 }); 

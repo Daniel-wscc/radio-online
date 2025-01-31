@@ -1,1 +1,55 @@
 /* You can add global styles to this file, and also import other style files */
+
+@import "primeng/resources/themes/lara-light-blue/theme.css";
+@import "primeng/resources/primeng.css";
+@import "primeicons/primeicons.css";
+
+:root {
+  --primary-color: #3B82F6;
+  --text-color: #1F2937;
+  --bg-color: #FFFFFF;
+  --card-bg: #FFFFFF;
+}
+
+[data-theme='dark'] {
+  --primary-color: #60A5FA;
+  --text-color: #F3F4F6;
+  --bg-color: #1F2937;
+  --card-bg: #374151;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+// RWD 斷點
+@media (max-width: 640px) {
+  .p-splitter {
+    flex-direction: column !important;
+  }
+  
+  .p-splitter-panel {
+    width: 100% !important;
+  }
+}
+
+// 暗色主題樣式
+.dark {
+  .p-card {
+    background-color: var(--card-bg);
+    color: var(--text-color);
+  }
+  
+  .p-button {
+    background-color: var(--primary-color);
+  }
+  
+  .station {
+    &:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+  }
+}

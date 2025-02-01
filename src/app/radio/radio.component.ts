@@ -113,26 +113,23 @@ export class RadioComponent implements OnInit, AfterViewInit {
     private radioSync: RadioSyncService,
     private themeService: ThemeService
   ) {
-    // 訂閱狀態更新
+    // 訂閱 radioState 的變化
     this.radioSync.radioState$.subscribe((state: RadioState) => {
-      if (state.currentStation?.name !== this.currentStation?.name) {
-        this.currentStation = state.currentStation;
-        if (state.currentStation) {
-          const url = state.currentStation.url;  // 移除 url_resolved
-          this.playStation(url, state.currentStation.name);
-        }
-      }
-
-      if (state.isPlaying !== this.isPlaying) {
-        if (state.isPlaying) {
-          this.audioPlayer.nativeElement.play();
-        } else {
+      if (state.youtubeState?.isYoutubeMode) {
+        this.isYoutubeMode = true;
+        this.currentStation = null;
+        if (this.audioPlayer?.nativeElement) {
           this.audioPlayer.nativeElement.pause();
+          this.audioPlayer.nativeElement.src = '';
         }
-        this.isPlaying = state.isPlaying;
+      } else if (state.currentStation) {
+        this.isYoutubeMode = false;
+        this.currentStation = state.currentStation;
+        const url = state.currentStation.url_resolved || state.currentStation.url;
+        this.playStation(url, state.currentStation.name);
       }
-
-      if (state.volume !== this.audioPlayer.nativeElement.volume) {
+      
+      if (typeof state.volume === 'number' && this.audioPlayer?.nativeElement) {
         this.audioPlayer.nativeElement.volume = state.volume;
       }
     });

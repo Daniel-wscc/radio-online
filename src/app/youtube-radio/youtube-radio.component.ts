@@ -41,6 +41,10 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   videoWidth: number | undefined;
   videoHeight: number | undefined;
 
+  private idleTimer: any;
+  private readonly IDLE_TIMEOUT = 5000; // 5秒
+  private lastInteractionTime: number = Date.now();
+
   constructor(
     private radioSync: RadioSyncService,
     private themeService: ThemeService,
@@ -73,6 +77,9 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
       this.isDarkTheme = isDark;
       this.cdr.detectChanges();
     });
+
+    // 監聽使用者互動
+    this.setupIdleDetection();
   }
 
   ngOnInit() {
@@ -83,6 +90,15 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   ngOnDestroy() {
+    // 清理監聽器
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+    }
+    document.removeEventListener('mousemove', () => this.resetIdleTimer());
+    document.removeEventListener('touchstart', () => this.resetIdleTimer());
+    document.removeEventListener('scroll', () => this.resetIdleTimer());
+    document.removeEventListener('keypress', () => this.resetIdleTimer());
+
     // 儲存播放清單到 localStorage
     localStorage.setItem('youtube-playlist', JSON.stringify(this.playlist));
   }
@@ -190,5 +206,44 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
         isYoutubeMode: true
       }
     });
+  }
+
+  private setupIdleDetection() {
+    // 監聽滑鼠移動
+    document.addEventListener('mousemove', () => this.resetIdleTimer());
+    // 監聽觸摸事件
+    document.addEventListener('touchstart', () => this.resetIdleTimer());
+    // 監聽滾動
+    document.addEventListener('scroll', () => this.resetIdleTimer());
+    // 監聽按鍵
+    document.addEventListener('keypress', () => this.resetIdleTimer());
+    
+    // 開始檢查閒置狀態
+    this.startIdleTimer();
+  }
+
+  private resetIdleTimer() {
+    this.lastInteractionTime = Date.now();
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+    }
+    this.startIdleTimer();
+  }
+
+  private startIdleTimer() {
+    this.idleTimer = setTimeout(() => {
+      if (this.currentVideoId) {
+        this.requestFullscreen();
+      }
+    }, this.IDLE_TIMEOUT);
+  }
+
+  private requestFullscreen() {
+    const youtubePlayer = document.querySelector('youtube-player iframe');
+    if (youtubePlayer && !document.fullscreenElement) {
+      youtubePlayer.requestFullscreen().catch(err => {
+        console.log('無法進入全螢幕模式:', err);
+      });
+    }
   }
 } 

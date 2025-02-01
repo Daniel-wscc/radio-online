@@ -268,15 +268,36 @@ export class RadioComponent implements OnInit, AfterViewInit {
 
   // 新增選擇電台的方法
   selectStation(station: any) {
-    this.isYoutubeMode = false;  // 切換回 radio 模式
+    this.isYoutubeMode = false;
     this.currentStation = station;
     const url = station.url_resolved || station.url;
     this.playStation(url, station.name);
     
+    let currentState: RadioState = {
+      isPlaying: false,
+      volume: 1,
+      youtubeState: {
+        playlist: [],
+        currentIndex: -1,
+        currentVideoId: null,
+        isYoutubeMode: false
+      }
+    };
+    
+    this.radioSync.radioState$.subscribe(state => {
+      currentState = state;
+    }).unsubscribe();
+
     this.radioSync.updateState({
       currentStation: station,
       isPlaying: true,
-      volume: this.audioPlayer.nativeElement.volume
+      volume: this.audioPlayer.nativeElement.volume,
+      youtubeState: {
+        playlist: currentState.youtubeState?.playlist || [],
+        currentIndex: currentState.youtubeState?.currentIndex || -1,
+        currentVideoId: currentState.youtubeState?.currentVideoId || null,
+        isYoutubeMode: false
+      }
     });
   }
 

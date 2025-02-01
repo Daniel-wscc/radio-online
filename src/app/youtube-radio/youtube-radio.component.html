@@ -1,9 +1,6 @@
-<div class="h-full w-full bg-white dark:bg-gray-800 overflow-y-auto">
-  <div class="p-4 bg-gray-800 dark:bg-gray-900 text-white sticky top-0">
-    <h2 class="text-xl font-bold">YouTube 播放清單</h2>
-  </div>
-
-  <div class="p-4">
+<div class="content-container">
+  <!-- 輸入區域 -->
+  <div class="input-section">
     <p-card [styleClass]="isDarkTheme ? 'dark-theme-card' : ''" class="w-full">
       <textarea 
         pInputTextarea 
@@ -17,27 +14,35 @@
         <p-button label="清除" (click)="clearPlaylist()" severity="secondary"></p-button>
       </div>
     </p-card>
+  </div>
 
-    <div class="mt-4">
-      <p-card *ngIf="currentVideoId" [styleClass]="isDarkTheme ? 'dark-theme-card' : ''" class="w-full">
-        <div class="youtube-player-container">
-          <youtube-player
-            [videoId]="currentVideoId"
-            [width]="'100%'"
-            [playerVars]="playerConfig"
-            (stateChange)="onPlayerStateChange($event)"
-            #youtubePlayer
-          ></youtube-player>
-        </div>
-        
-        <div class="mt-4 flex gap-2">
+  <!-- 播放器區域 -->
+  @if(currentVideoId) {
+    <div class="player-section">
+      <div class="youtube-player-container" #youtubePlayer>
+        <youtube-player
+          [videoId]="currentVideoId"
+          [width]="videoWidth"
+          [height]="videoHeight"
+          [playerVars]="playerConfig"
+          (stateChange)="onPlayerStateChange($event)"
+        ></youtube-player>
+      </div>
+    </div>
+  }
+
+  <!-- 控制項和播放清單區域 -->
+  <div class="controls-and-playlist">
+    @if(currentVideoId) {
+      <div class="controls-container">
+        <div class="flex gap-2 justify-center">
           <p-button label="上一首" (click)="playPrevious()" [disabled]="currentIndex <= 0"></p-button>
           <p-button label="下一首" (click)="playNext()" [disabled]="currentIndex >= playlist.length - 1"></p-button>
         </div>
-      </p-card>
-    </div>
+      </div>
+    }
 
-    <div class="mt-4">
+    <div class="playlist-container">
       <p-card [styleClass]="isDarkTheme ? 'dark-theme-card' : ''" class="w-full">
         <h3 class="text-lg font-bold mb-2 dark:text-white">播放清單</h3>
         <div class="divide-y divide-gray-200 dark:divide-gray-700">

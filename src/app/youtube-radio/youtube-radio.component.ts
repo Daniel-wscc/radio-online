@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChild, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ChangeDetectorRef, AfterViewInit, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { YouTubePlayer, YouTubePlayerModule } from '@angular/youtube-player';
@@ -22,8 +22,9 @@ import { ThemeService } from '../services/theme.service';
   templateUrl: './youtube-radio.component.html',
   styleUrls: ['./youtube-radio.component.less']
 })
-export class YoutubeRadioComponent implements OnInit, OnDestroy {
-  @ViewChild('youtubePlayer') youtubePlayer!: YouTubePlayer;
+export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
+  @ViewChild('youtubePlayer', { static: false }) youtubePlayerContainer!: ElementRef;
+  @ViewChild(YouTubePlayer) youtubePlayer!: YouTubePlayer;
 
   urlInput: string = '';
   playlist: Array<{ id: string, title?: string }> = [];
@@ -36,6 +37,9 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy {
   };
 
   isDarkTheme = false;
+
+  videoWidth: number | undefined;
+  videoHeight: number | undefined;
 
   constructor(
     private radioSync: RadioSyncService,
@@ -81,6 +85,20 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy {
   ngOnDestroy() {
     // 儲存播放清單到 localStorage
     localStorage.setItem('youtube-playlist', JSON.stringify(this.playlist));
+  }
+
+  ngAfterViewInit(): void {
+    this.onResize();
+    window.addEventListener('resize', this.onResize.bind(this));
+  }
+
+  onResize(): void {
+    this.videoWidth = Math.min(
+      this.youtubePlayerContainer.nativeElement.clientWidth,
+      1200
+    );
+    this.videoHeight = this.videoWidth * 0.5625;
+    this.cdr.detectChanges();
   }
 
   loadPlaylist() {

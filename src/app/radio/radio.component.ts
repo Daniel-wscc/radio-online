@@ -63,6 +63,7 @@ export class RadioComponent implements OnInit, AfterViewInit {
   currentVideoId: string | null = null;
   currentYoutubeIndex: number = -1;
   isDarkTheme = false;
+  volume: number = 1;
 
   playerConfig = {
     origin: window.location.origin,
@@ -108,6 +109,8 @@ export class RadioComponent implements OnInit, AfterViewInit {
     }
   ];
 
+  private currentPlayPromise: Promise<void> | null = null;
+
   constructor(
     private cdr: ChangeDetectorRef,
     private radioSync: RadioSyncService,
@@ -115,6 +118,7 @@ export class RadioComponent implements OnInit, AfterViewInit {
   ) {
     // 訂閱 radioState 的變化
     this.radioSync.radioState$.subscribe((state: RadioState) => {
+      // 處理 YouTube 模式切換
       if (state.youtubeState?.isYoutubeMode) {
         this.isYoutubeMode = true;
         this.currentStation = null;
@@ -122,15 +126,23 @@ export class RadioComponent implements OnInit, AfterViewInit {
           this.audioPlayer.nativeElement.pause();
           this.audioPlayer.nativeElement.src = '';
         }
-      } else if (state.currentStation) {
+      } 
+      // 只有當電台改變時才重新播放
+      else if (state.currentStation && 
+          (!this.currentStation || 
+           this.currentStation.name !== state.currentStation.name)) {
         this.isYoutubeMode = false;
         this.currentStation = state.currentStation;
         const url = state.currentStation.url_resolved || state.currentStation.url;
         this.playStation(url, state.currentStation.name);
       }
       
-      if (typeof state.volume === 'number' && this.audioPlayer?.nativeElement) {
-        this.audioPlayer.nativeElement.volume = state.volume;
+      // 單獨處理音量變化
+      if (typeof state.volume === 'number') {
+        this.volume = state.volume;
+        if (!this.isYoutubeMode && this.audioPlayer?.nativeElement) {
+          this.audioPlayer.nativeElement.volume = this.volume;
+        }
       }
     });
 
@@ -181,87 +193,84 @@ export class RadioComponent implements OnInit, AfterViewInit {
   }
 
   playStation(url: string, stationName: string) {
-    console.log('Audio player ready status:', this.isAudioPlayerReady);
-    console.log('Audio player element:', this.audioPlayer?.nativeElement);
-    
     if (!this.isAudioPlayerReady) {
       console.error('Audio player is not ready yet');
-      // alert('播放器尚未準備好，請稍候再試。');
       return;
     }
-    
+
     this.currentStation = this.stations.find(s => s.name === stationName);
     try {
       console.log(`嘗試播放電台: ${stationName}`);
-      console.log(`串流網址: ${url}`);
       
       if (!this.audioPlayer?.nativeElement) {
         throw new Error('Audio player not initialized');
       }
       
       const audio = this.audioPlayer.nativeElement;
-      audio.pause();
-      audio.src = '';
-      audio.crossOrigin = "anonymous";
 
-      if (url.endsWith('m3u8')) {
-        if (Hls.isSupported()) {
-          const hls = new Hls();
-          hls.loadSource(url);
-          hls.attachMedia(audio);
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            audio.play().catch(error => {
-              console.error("HLS 播放失敗：", error, {
-                電台名稱: stationName,
-                串流網址: url,
-                錯誤訊息: error.message
-              });
-              // alert(`無法播放電台 ${stationName}，請嘗試其他電台。`);
-            });
+      // 如果有正在進行的播放，先等它完成
+      if (this.currentPlayPromise) {
+        this.currentPlayPromise
+          .then(() => {
+            this.startNewPlayback(audio, url);
+          })
+          .catch(() => {
+            this.startNewPlayback(audio, url);
           });
-        } else {
-          console.error("瀏覽器不支援 HLS");
-          // alert("您的瀏覽器不支援此格式的串流播放");
-        }
       } else {
-        audio.src = url;
-        audio.play().catch(error => {
-          console.error("播放失敗：", error, {
-            電台名稱: stationName,
-            串流網址: url,
-            錯誤訊息: error.message
-          });
-          // alert(`無法播放電台 ${stationName}，請嘗試其他電台。`);
-        });
+        this.startNewPlayback(audio, url);
       }
 
-      // 重置時間
-      this.currentTime = 0;
-      this.duration = 0;
     } catch (error) {
       console.error("設定音源時發生錯誤：", error);
-      // alert("播放器發生錯誤，請重新整理頁面。");
     }
   }
 
-  // 添加一個 getter 方法來安全地獲取音量
-  get volume(): number {
-    return this.audioPlayer?.nativeElement?.volume || 0;
+  private startNewPlayback(audio: HTMLAudioElement, url: string) {
+    audio.pause();
+    audio.src = '';
+    audio.crossOrigin = "anonymous";
+
+    if (url.endsWith('m3u8')) {
+      this.handleHLSPlayback(audio, url);
+    } else {
+      audio.src = url;
+      this.currentPlayPromise = audio.play();
+      this.currentPlayPromise.catch(error => {
+        console.error("播放失敗：", error);
+        this.currentPlayPromise = null;
+      });
+    }
   }
 
-  // 添加一個方法來計算音量條寬度
-  getVolumeWidth(): string {
-    if (!this.audioPlayer?.nativeElement) return '0%';
-    return `${(this.audioPlayer.nativeElement.volume * 100)}%`;
+  private handleHLSPlayback(audio: HTMLAudioElement, url: string) {
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(url);
+      hls.attachMedia(audio);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        this.currentPlayPromise = audio.play();
+        this.currentPlayPromise.catch(error => {
+          console.error("HLS 播放失敗：", error);
+          this.currentPlayPromise = null;
+        });
+      });
+    } else {
+      console.error("瀏覽器不支援 HLS");
+    }
   }
 
+  // 修改音量控制
   onVolumeChange(event: any) {
-    if (this.audioPlayer?.nativeElement) {
-      this.audioPlayer.nativeElement.volume = event.value / 100;
+    if (!this.isYoutubeMode && this.audioPlayer?.nativeElement) {
+      this.volume = event.value / 100;
+      this.audioPlayer.nativeElement.volume = this.volume;
+      
+      // 直接更新狀態，不使用延遲
       this.radioSync.updateState({
         currentStation: this.currentStation,
         isPlaying: this.isPlaying,
-        volume: this.audioPlayer.nativeElement.volume
+        volume: this.volume
       });
     }
   }
@@ -304,9 +313,24 @@ export class RadioComponent implements OnInit, AfterViewInit {
   // 加入 YouTube 相關方法
   switchToYoutube() {
     this.isYoutubeMode = true;
+    this.currentStation = null;
     if (this.audioPlayer?.nativeElement) {
       this.audioPlayer.nativeElement.pause();
+      this.audioPlayer.nativeElement.src = '';
     }
+
+    // 更新遠端狀態，包含完整的 YouTube 狀態
+    this.radioSync.updateState({
+      currentStation: null,
+      isPlaying: false,
+      volume: this.audioPlayer?.nativeElement?.volume || 1,
+      youtubeState: {
+        isYoutubeMode: true,
+        playlist: this.youtubePlaylist || [],
+        currentIndex: this.currentYoutubeIndex || -1,
+        currentVideoId: this.currentVideoId || null
+      }
+    });
   }
 
   switchToRadio() {

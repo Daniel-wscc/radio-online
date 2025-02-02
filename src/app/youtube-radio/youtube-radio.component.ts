@@ -197,9 +197,20 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   playNext() {
-    if (this.currentIndex < this.playlist.length - 1) {
-      this.playIndex(this.currentIndex + 1);
+    if (this.playlist.length === 0) return;
+    
+    // 如果是最後一首，回到第一首
+    if (this.currentIndex >= this.playlist.length - 1) {
+      this.currentIndex = 0;
+    } else {
+      this.currentIndex++;
     }
+    
+    this.currentVideoId = this.playlist[this.currentIndex].id;
+    setTimeout(() => {
+      this.youtubePlayer?.playVideo();
+    }, 1000);
+    this.syncYoutubeState();
   }
 
   playPrevious() {
@@ -224,11 +235,18 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   onPlayerStateChange(event: YT.OnStateChangeEvent) {
-    if (event.data === YT.PlayerState.ENDED) {
-      this.playNext();
-      // 自動播放下一首
-      const player = (event.target as YT.Player);
-      player.playVideo();
+    if (event.target.getPlayerState() === YT.PlayerState.ENDED) {
+      if (this.currentIndex >= this.playlist.length - 1) {
+        this.currentIndex = 0;
+      } else {
+        this.currentIndex++;
+      }
+      
+      this.currentVideoId = this.playlist[this.currentIndex].id;
+      setTimeout(() => {
+        this.youtubePlayer?.playVideo();
+      }, 1000);
+      this.syncYoutubeState();
     }
   }
 

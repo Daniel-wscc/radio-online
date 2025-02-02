@@ -5,7 +5,7 @@ import { ButtonModule } from 'primeng/button';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RadioComponent, ButtonModule],
+  imports: [RouterOutlet, RadioComponent, ButtonModule ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.less'
 })

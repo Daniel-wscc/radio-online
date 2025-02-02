@@ -2,7 +2,7 @@ import { Component, OnInit, ElementRef, ViewChild, AfterViewInit, ChangeDetector
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RadioBrowserApi } from 'radio-browser-api';
-import VConsole from 'vconsole';
+// import VConsole from 'vconsole';
 import Hls from 'hls.js';
 import { RadioSyncService, RadioState } from '../services/radio-sync.service';
 import { RouterModule } from '@angular/router';
@@ -49,7 +49,7 @@ export class RadioComponent implements OnInit, AfterViewInit {
   private isAudioPlayerReady = false;
   private hasUserInteracted = false;
   
-  private vConsole = new VConsole();
+  // private vConsole = new VConsole();
   public stations: any[] = [];
   protected Array = Array;
   public currentStation: any = null;
@@ -64,6 +64,7 @@ export class RadioComponent implements OnInit, AfterViewInit {
   currentYoutubeIndex: number = -1;
   isDarkTheme = false;
   volume: number = 1;
+  onlineUsers: number = 0;
 
   playerConfig = {
     origin: window.location.origin,
@@ -149,6 +150,12 @@ export class RadioComponent implements OnInit, AfterViewInit {
     // 訂閱主題變化
     this.themeService.darkMode$.subscribe(isDark => {
       this.isDarkTheme = isDark;
+      this.cdr.detectChanges();
+    });
+
+    // 訂閱線上人數更新
+    this.radioSync.onlineUsers$.subscribe(count => {
+      this.onlineUsers = count;
       this.cdr.detectChanges();
     });
   }

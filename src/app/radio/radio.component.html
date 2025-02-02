@@ -6,7 +6,10 @@
   <div class="w-full md:w-1/4 bg-white dark:bg-gray-800 dark:text-white overflow-y-auto">
     <!-- 標題和主題切換 -->
     <div class="p-4 bg-gray-800 dark:bg-gray-900 text-white sticky top-0 flex justify-between items-center">
-      <h2 class="text-xl font-bold">芯禾電台2.0</h2>
+      <div class="flex items-center gap-2">
+        <h2 class="text-xl font-bold">芯禾電台2.0</h2>
+        <p-tag [value]="'線上人數 ' + onlineUsers" severity="success" [rounded]="true"></p-tag>
+      </div>
       <p-button 
         icon="pi pi-moon" 
         (click)="toggleTheme()"

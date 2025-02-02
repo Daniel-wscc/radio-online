@@ -46,7 +46,20 @@ let currentRadioState = {
   }
 };
 
+// 添加線上人數計數
+let onlineUsers = 0;
+
+interface ChatMessage {
+  userName: string;
+  message: string;
+  timestamp: number;
+}
+
 io.on('connection', (socket) => {
+  // 更新線上人數
+  onlineUsers++;
+  io.emit('onlineUsers', onlineUsers);
+  
   console.log('使用者連接');
   
   // 發送當前狀態給新連接的使用者
@@ -59,7 +72,15 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('radioStateUpdate', state);
   });
 
+  // 處理聊天訊息
+  socket.on('chatMessage', (message: ChatMessage) => {
+    io.emit('newChatMessage', message);
+  });
+
   socket.on('disconnect', () => {
+    // 更新線上人數
+    onlineUsers--;
+    io.emit('onlineUsers', onlineUsers);
     console.log('使用者斷開連接');
   });
 });

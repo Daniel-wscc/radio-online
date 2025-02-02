@@ -7,20 +7,25 @@ import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
 import { RadioSyncService, RadioState } from '../services/radio-sync.service';
 import { ThemeService } from '../services/theme.service';
+import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
+import { DragDropModule } from '@angular/cdk/drag-drop';
+import { TooltipModule } from 'primeng/tooltip';
 
 @Component({
   selector: 'app-youtube-radio',
-  standalone: true,
+  templateUrl: './youtube-radio.component.html',
+  styleUrls: ['./youtube-radio.component.less'],
   imports: [
     CommonModule,
     FormsModule,
     YouTubePlayerModule,
     TextareaModule,
     ButtonModule,
-    CardModule
+    CardModule,
+    DragDropModule,
+    TooltipModule
   ],
-  templateUrl: './youtube-radio.component.html',
-  styleUrls: ['./youtube-radio.component.less']
+  standalone: true
 })
 export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   @ViewChild('youtubePlayer', { static: false }) youtubePlayerContainer!: ElementRef;
@@ -55,27 +60,33 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
       if (state.youtubeState) {
         const youtubeState = state.youtubeState;
         
-        // 只有當狀態真的改變時才更新
-        if (JSON.stringify(this.playlist) !== JSON.stringify(youtubeState.playlist)) {
-          this.playlist = youtubeState.playlist;
-        }
-        
-        if (this.currentIndex !== youtubeState.currentIndex) {
-          this.currentIndex = youtubeState.currentIndex;
-          this.currentVideoId = youtubeState.currentVideoId;
-          if (this.currentVideoId) {
-            setTimeout(() => {
-              this.youtubePlayer?.playVideo();
-            }, 1000);
+        // 使用 NgZone.run 或 setTimeout 來確保在正確的時機更新
+        setTimeout(() => {
+          // 只有當狀態真的改變時才更新
+          if (JSON.stringify(this.playlist) !== JSON.stringify(youtubeState.playlist)) {
+            this.playlist = youtubeState.playlist;
           }
-        }
+          
+          if (this.currentIndex !== youtubeState.currentIndex) {
+            this.currentIndex = youtubeState.currentIndex;
+            this.currentVideoId = youtubeState.currentVideoId;
+            if (this.currentVideoId) {
+              setTimeout(() => {
+                this.youtubePlayer?.playVideo();
+              }, 1000);
+            }
+          }
+          this.cdr.detectChanges();
+        });
       }
     });
 
     // 訂閱主題變化
     this.themeService.darkMode$.subscribe(isDark => {
-      this.isDarkTheme = isDark;
-      this.cdr.detectChanges();
+      setTimeout(() => {
+        this.isDarkTheme = isDark;
+        this.cdr.detectChanges();
+      });
     });
 
     // 監聽使用者互動
@@ -117,14 +128,29 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
     this.cdr.detectChanges();
   }
 
-  loadPlaylist() {
+  async loadPlaylist() {
+    if (!this.urlInput) return;
+    
     const urls = this.urlInput.split('\n').filter(url => url.trim());
-    const newVideos = urls.map(url => {
-      const videoId = this.extractVideoId(url);
-      return { id: videoId };
-    }).filter(video => video.id);
-
-    this.playlist = [...this.playlist, ...newVideos];
+    const newPlaylist: Array<{ id: string, title?: string }> = [];
+    
+    for (const url of urls) {
+      try {
+        const videoId = this.extractVideoId(url);
+        if (videoId) {
+          // 獲取影片標題
+          const title = await this.getVideoTitle(videoId);
+          newPlaylist.push({
+            id: videoId,
+            title: title || videoId // 如果無法獲取標題，使用 ID
+          });
+        }
+      } catch (error) {
+        console.error('Error processing URL:', url, error);
+      }
+    }
+    
+    this.playlist = newPlaylist;
     this.urlInput = '';
 
     if (this.currentIndex === -1 && this.playlist.length > 0) {
@@ -132,6 +158,17 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
     }
 
     this.syncYoutubeState();
+  }
+
+  private async getVideoTitle(videoId: string): Promise<string> {
+    try {
+      const response = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`);
+      const data = await response.json();
+      return data.title || '';
+    } catch (error) {
+      console.error('Error fetching video title:', error);
+      return '';
+    }
   }
 
   clearPlaylist() {
@@ -200,10 +237,10 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
       isPlaying: true,
       volume: 1,
       youtubeState: {
+        isYoutubeMode: true,
         playlist: this.playlist,
         currentIndex: this.currentIndex,
-        currentVideoId: this.currentVideoId,
-        isYoutubeMode: true
+        currentVideoId: this.currentVideoId
       }
     });
   }
@@ -245,5 +282,50 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
         console.log('無法進入全螢幕模式:', err);
       });
     }
+  }
+
+  // 當播放器準備好時的事件處理
+  onPlayerReady(event: YT.PlayerEvent) {
+    if (this.currentVideoId) {
+      this.getVideoTitle(this.currentVideoId).then(title => {
+        if (title && this.currentIndex !== -1) {
+          this.playlist[this.currentIndex].title = title;
+          this.syncYoutubeState();
+        }
+      });
+    }
+  }
+
+  onDrop(event: CdkDragDrop<any[]>) {
+    // 更新當前播放索引
+    if (this.currentIndex === event.previousIndex) {
+      this.currentIndex = event.currentIndex;
+    } else if (this.currentIndex > event.previousIndex && this.currentIndex <= event.currentIndex) {
+      this.currentIndex--;
+    } else if (this.currentIndex < event.previousIndex && this.currentIndex >= event.currentIndex) {
+      this.currentIndex++;
+    }
+
+    // 移動項目
+    moveItemInArray(this.playlist, event.previousIndex, event.currentIndex);
+    this.syncYoutubeState();
+  }
+
+  shufflePlaylist() {
+    // 保存當前播放的影片
+    const currentVideo = this.currentIndex !== -1 ? this.playlist[this.currentIndex] : null;
+    
+    // Fisher-Yates 洗牌算法
+    for (let i = this.playlist.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this.playlist[i], this.playlist[j]] = [this.playlist[j], this.playlist[i]];
+    }
+    
+    // 更新當前播放索引
+    if (currentVideo) {
+      this.currentIndex = this.playlist.findIndex(video => video.id === currentVideo.id);
+    }
+    
+    this.syncYoutubeState();
   }
 } 

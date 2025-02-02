@@ -9,6 +9,7 @@
           [height]="videoHeight"
           [playerVars]="playerConfig"
           (stateChange)="onPlayerStateChange($event)"
+          (ready)="onPlayerReady($event)"
           #youtubePlayer
         ></youtube-player>
       </div>
@@ -45,13 +46,27 @@
   <!-- 播放清單區域 -->
   <div class="playlist-container">
     <p-card [styleClass]="isDarkTheme ? 'dark-theme-card' : ''" class="w-full">
-      <h3 class="text-lg font-bold mb-2 dark:text-white">播放清單</h3>
-      <div class="divide-y divide-gray-200 dark:divide-gray-700">
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="text-lg font-bold dark:text-white">播放清單</h3>
+        <p-button 
+          icon="pi pi-sort-alt" 
+          (click)="shufflePlaylist()"
+          [outlined]="true"
+          [disabled]="playlist.length <= 1"
+          pTooltip="隨機排序"
+        ></p-button>
+      </div>
+      <div class="divide-y divide-gray-200 dark:divide-gray-700" cdkDropList (cdkDropListDropped)="onDrop($event)">
         @for (video of playlist; track video.id; let i = $index) {
           <div class="py-2 flex justify-between items-center dark:text-white"
                [class.bg-blue-50]="i === currentIndex"
-               [class.dark:bg-blue-900]="i === currentIndex">
-            <span>{{ video.title || video.id }}</span>
+               [class.dark:bg-blue-900]="i === currentIndex"
+               cdkDrag
+               [cdkDragDisabled]="i === currentIndex">
+            <div class="flex items-center gap-2">
+              <i class="pi pi-bars text-gray-400 cursor-move" cdkDragHandle></i>
+              <span>{{ video.title || video.id }}</span>
+            </div>
             <div class="flex gap-2">
               <p-button 
                 icon="pi pi-play" 

@@ -75,28 +75,28 @@ export class RadioComponent implements OnInit, AfterViewInit {
     {
       name: '飛碟電台 FM92.1 UFO Radio Live Stream',
       url: 'https://stream.rcs.revma.com/em90w4aeewzuv',
-      tags: ['不明'],
+      tags: ['local'],
       codec: 'MP3',
       id: 'custom_1'
     },
     {
       name: '飛揚調頻 FM89.5 Live Stream',
       url: 'https://stream.rcs.revma.com/e0tdah74hv8uv',
-      tags: ['不明'],
+      tags: ['music'],
       codec: 'MP3',
       id: 'custom_2'
     },
     {
       name: '中廣流行網 I like radio FM103.3 Live Stream',
       url: 'https://stream.rcs.revma.com/aw9uqyxy2tzuv',
-      tags: ['不明'],
+      tags: ['music'],
       codec: 'MP3',
       id: 'custom_3'
     },
     {
       name: '亞洲電台 FM92.7 Live Stream',
       url: 'https://stream.rcs.revma.com/xpgtqc74hv8uv',
-      tags: ['不明'],
+      tags: ['music'],
       codec: 'MP3',
       id: 'custom_4'
     },
@@ -394,6 +394,16 @@ export class RadioComponent implements OnInit, AfterViewInit {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
+    }
+  }
+
+  getTagSeverity(tag: string): 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast' | undefined {
+    switch (tag.toLowerCase()) {
+      case 'news': return 'info';
+      case 'music': return 'success';
+      case 'talk': return 'warn';
+      case 'sport': return 'danger';
+      default: return 'secondary';
     }
   }
 }

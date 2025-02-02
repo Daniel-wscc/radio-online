@@ -32,10 +32,18 @@ export class RadioSyncService {
 
   radioState$ = this.radioState.asObservable();
 
+  private onlineUsersSubject = new BehaviorSubject<number>(0);
+  onlineUsers$ = this.onlineUsersSubject.asObservable();
+
   constructor(private socket: Socket) {
     // 監聽來自伺服器的狀態更新
     this.socket.fromEvent<RadioState>('radioStateUpdate').subscribe(state => {
       this.radioState.next(state);
+    });
+
+    // 監聽線上人數更新
+    this.socket.fromEvent<number>('onlineUsers').subscribe(count => {
+      this.onlineUsersSubject.next(count);
     });
   }
 

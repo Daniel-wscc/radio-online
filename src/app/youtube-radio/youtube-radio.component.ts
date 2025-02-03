@@ -38,7 +38,8 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
 
   playerConfig = {
     origin: window.location.origin,
-    widget_referrer: window.location.href
+    widget_referrer: window.location.href,
+    autoplay: 1  // 添加自動播放設定
   };
 
   isDarkTheme = false;
@@ -46,9 +47,7 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   videoWidth: number | undefined;
   videoHeight: number | undefined;
 
-  private idleTimer: any;
-  private readonly IDLE_TIMEOUT = 5000; // 5秒
-  private lastInteractionTime: number = Date.now();
+  private isPlayerReady = false;  // 新增此變數追蹤播放器狀態
 
   constructor(
     private radioSync: RadioSyncService,
@@ -60,9 +59,7 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
       if (state.youtubeState) {
         const youtubeState = state.youtubeState;
         
-        // 使用 NgZone.run 或 setTimeout 來確保在正確的時機更新
         setTimeout(() => {
-          // 只有當狀態真的改變時才更新
           if (JSON.stringify(this.playlist) !== JSON.stringify(youtubeState.playlist)) {
             this.playlist = youtubeState.playlist;
           }
@@ -70,10 +67,8 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
           if (this.currentIndex !== youtubeState.currentIndex) {
             this.currentIndex = youtubeState.currentIndex;
             this.currentVideoId = youtubeState.currentVideoId;
-            if (this.currentVideoId) {
-              setTimeout(() => {
-                this.youtubePlayer?.playVideo();
-              }, 1000);
+            if (this.currentVideoId && this.isPlayerReady) {  // 確認播放器已準備就緒
+              this.safePlayVideo();
             }
           }
           this.cdr.detectChanges();
@@ -88,9 +83,6 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
         this.cdr.detectChanges();
       });
     });
-
-    // 監聽使用者互動
-    this.setupIdleDetection();
   }
 
   ngOnInit() {
@@ -101,15 +93,6 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   ngOnDestroy() {
-    // 清理監聽器
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-    }
-    document.removeEventListener('mousemove', () => this.resetIdleTimer());
-    document.removeEventListener('touchstart', () => this.resetIdleTimer());
-    document.removeEventListener('scroll', () => this.resetIdleTimer());
-    document.removeEventListener('keypress', () => this.resetIdleTimer());
-
     // 儲存播放清單到 localStorage
     localStorage.setItem('youtube-playlist', JSON.stringify(this.playlist));
   }
@@ -132,7 +115,7 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
     if (!this.urlInput) return;
     
     const urls = this.urlInput.split('\n').filter(url => url.trim());
-    const newPlaylist: Array<{ id: string, title?: string }> = [];
+    const newVideos: Array<{ id: string, title?: string }> = [];
     
     for (const url of urls) {
       try {
@@ -140,7 +123,7 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
         if (videoId) {
           // 獲取影片標題
           const title = await this.getVideoTitle(videoId);
-          newPlaylist.push({
+          newVideos.push({
             id: videoId,
             title: title || videoId // 如果無法獲取標題，使用 ID
           });
@@ -150,9 +133,11 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
       }
     }
     
-    this.playlist = newPlaylist;
+    // 將新影片加入到現有播放清單的最後
+    this.playlist = [...this.playlist, ...newVideos];
     this.urlInput = '';
 
+    // 如果目前沒有播放任何影片且播放清單不為空，開始播放第一首
     if (this.currentIndex === -1 && this.playlist.length > 0) {
       this.playIndex(0);
     }
@@ -189,9 +174,9 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
     if (index >= 0 && index < this.playlist.length) {
       this.currentIndex = index;
       this.currentVideoId = this.playlist[index].id;
-      setTimeout(() => {
-        this.youtubePlayer?.playVideo();
-      }, 1000);
+      if (this.isPlayerReady) {
+        this.safePlayVideo();
+      }
       this.syncYoutubeState();
     }
   }
@@ -199,7 +184,6 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   playNext() {
     if (this.playlist.length === 0) return;
     
-    // 如果是最後一首，回到第一首
     if (this.currentIndex >= this.playlist.length - 1) {
       this.currentIndex = 0;
     } else {
@@ -207,9 +191,9 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
     }
     
     this.currentVideoId = this.playlist[this.currentIndex].id;
-    setTimeout(() => {
-      this.youtubePlayer?.playVideo();
-    }, 1000);
+    if (this.isPlayerReady) {
+      this.safePlayVideo();
+    }
     this.syncYoutubeState();
   }
 
@@ -243,9 +227,9 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
       }
       
       this.currentVideoId = this.playlist[this.currentIndex].id;
-      setTimeout(() => {
-        this.youtubePlayer?.playVideo();
-      }, 1000);
+      if (this.isPlayerReady) {
+        this.safePlayVideo();
+      }
       this.syncYoutubeState();
     }
   }
@@ -263,54 +247,30 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
     });
   }
 
-  private setupIdleDetection() {
-    // 監聽滑鼠移動
-    document.addEventListener('mousemove', () => this.resetIdleTimer());
-    // 監聽觸摸事件
-    document.addEventListener('touchstart', () => this.resetIdleTimer());
-    // 監聽滾動
-    document.addEventListener('scroll', () => this.resetIdleTimer());
-    // 監聽按鍵
-    document.addEventListener('keypress', () => this.resetIdleTimer());
-    
-    // 開始檢查閒置狀態
-    this.startIdleTimer();
-  }
-
-  private resetIdleTimer() {
-    this.lastInteractionTime = Date.now();
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-    }
-    this.startIdleTimer();
-  }
-
-  private startIdleTimer() {
-    this.idleTimer = setTimeout(() => {
-      if (this.currentVideoId) {
-        this.requestFullscreen();
-      }
-    }, this.IDLE_TIMEOUT);
-  }
-
-  private requestFullscreen() {
-    const youtubePlayer = document.querySelector('youtube-player iframe');
-    if (youtubePlayer && !document.fullscreenElement) {
-      youtubePlayer.requestFullscreen().catch(err => {
-        console.log('無法進入全螢幕模式:', err);
-      });
-    }
-  }
-
-  // 當播放器準備好時的事件處理
   onPlayerReady(event: YT.PlayerEvent) {
+    this.isPlayerReady = true;
     if (this.currentVideoId) {
+      event.target.playVideo();  // 直接使用事件對象來播放
       this.getVideoTitle(this.currentVideoId).then(title => {
         if (title && this.currentIndex !== -1) {
           this.playlist[this.currentIndex].title = title;
           this.syncYoutubeState();
         }
       });
+    }
+  }
+
+  private safePlayVideo() {
+    if (this.youtubePlayer && this.isPlayerReady) {
+      try {
+        this.youtubePlayer.playVideo();
+      } catch (error) {
+        console.error('播放失敗，1秒後重試:', error);
+        setTimeout(() => this.safePlayVideo(), 1000);
+      }
+    } else {
+      console.log('播放器未就緒，1秒後重試');
+      setTimeout(() => this.safePlayVideo(), 1000);
     }
   }
 

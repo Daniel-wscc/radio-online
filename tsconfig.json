@@ -15,14 +15,17 @@
     "experimentalDecorators": true,
     "moduleResolution": "Node",
     "importHelpers": true,
-    "target": "ES2020",
-    "module": "ESNext"
+    "target": "ES5",
+    "module": "ES2015",
+    "downlevelIteration": true,
+    "lib": ["es2015", "dom"]
   },
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,
     "strictInjectionParameters": true,
     "strictInputAccessModifiers": true,
-    "strictTemplates": true
+    "strictTemplates": true,
+    "enableIvy": false
   },
   "ts-node": {
     "esm": true,

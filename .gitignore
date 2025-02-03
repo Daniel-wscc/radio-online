@@ -2,9 +2,11 @@
 
 # Compiled output
 /dist
+/dist-es5
 /tmp
 /out-tsc
 /bazel-out
+/SinghoRadioApp
 
 # Node
 /node_modules

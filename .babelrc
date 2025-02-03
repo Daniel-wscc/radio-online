@@ -1,0 +1,10 @@
+{
+  "presets": [
+    ["@babel/preset-env", {
+      "targets": {
+        "chrome": "38"
+      },
+      "modules": false
+    }]
+  ]
+} 

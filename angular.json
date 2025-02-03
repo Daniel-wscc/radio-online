@@ -21,7 +21,7 @@
             "index": "src/index.html",
             "browser": "src/main.ts",
             "polyfills": [
-              "zone.js"
+              "src/polyfills.ts"
             ],
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "scss",
@@ -40,23 +40,26 @@
                 "node_modules"
               ]
             },
-            "baseHref": "/radio-online/"
+            "baseHref": "/radio-online-es5/"
           },
           "configurations": {
             "production": {
+              "optimization": {
+                "scripts": false,
+                "styles": true
+              },
+              "sourceMap": false,
+              "namedChunks": false,
+              "aot": true,
+              "extractLicenses": true,
+              "outputHashing": "all",
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "10MB",
-                  "maximumError": "10MB"
-                },
-                {
-                  "type": "anyComponentStyle",
-                  "maximumWarning": "10MB",
-                  "maximumError": "10MB"
+                  "maximumWarning": "2mb",
+                  "maximumError": "5mb"
                 }
-              ],
-              "outputHashing": "all"
+              ]
             },
             "development": {
               "optimization": false,

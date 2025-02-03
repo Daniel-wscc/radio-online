@@ -4,10 +4,12 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./out-tsc/app",
+    "target": "ES5",
     "types": []
   },
   "files": [
-    "src/main.ts"
+    "src/main.ts",
+    "src/polyfills.ts"
   ],
   "include": [
     "src/**/*.d.ts"

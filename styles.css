@@ -1,0 +1,173 @@
+body {
+    transition: background-color 0.3s;
+}
+
+.dark-mode {
+    background-color: #1a1a1a;
+    color: #ffffff;
+}
+
+.dark-mode .bg-white {
+    background-color: #1a1a1a !important;
+}
+
+.dark-mode .bg-light {
+    background-color: #2d2d2d !important;
+}
+
+.dark-mode .card {
+    background-color: #2d2d2d;
+    border-color: #404040;
+}
+
+.dark-mode .list-group-item {
+    background-color: #2d2d2d;
+    color: #ffffff;
+    border-color: #404040;
+}
+
+.dark-mode .list-group-item:hover {
+    background-color: #404040;
+}
+
+.sidebar {
+    height: 100vh;
+    overflow-y: auto;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+.sidebar .d-flex.justify-content-between {
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+.station-item {
+    cursor: pointer;
+    padding: 1rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.station-item:hover {
+    background-color: #f8f9fa;
+}
+
+.station-item.active {
+    background-color: #007bff;
+    color: white;
+}
+
+.volume-control {
+    width: 100%;
+    padding: 1rem;
+}
+
+#youtubePlayer {
+    width: 100%;
+    aspect-ratio: 16/9;
+}
+
+.playlist-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.playlist-item:hover {
+    background-color: #f8f9fa;
+}
+
+.dark-mode .playlist-item:hover {
+    background-color: #404040;
+}
+
+/* YouTube 播放器相關樣式 */
+#youtubeSection {
+    margin-top: 2rem;
+    width: 100%;
+    /* max-width: 800px; */
+}
+
+.youtube-container {
+    position: relative;
+    width: 100%;
+    padding-top: 56.25%; /* 16:9 寬高比 */
+    margin-bottom: 1rem;
+}
+
+#youtubePlayer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+.playlist-controls {
+    margin: 1rem 0;
+}
+
+.playlist-item.active {
+    background-color: #e9ecef;
+}
+
+.dark-mode .playlist-item.active {
+    background-color: #404040;
+}
+
+/* YouTube 相關黑暗模式樣式 */
+.dark-mode .form-control {
+    background-color: #2d2d2d;
+    border-color: #404040;
+    color: #ffffff;
+}
+
+.dark-mode .form-control::placeholder {
+    color: #aaaaaa;
+}
+
+.dark-mode .playlist-item {
+    color: #ffffff;
+}
+
+.dark-mode .playlist-item.active {
+    background-color: #404040;
+}
+
+/* 卡片置中樣式 */
+#playerContainer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    padding: 2rem;
+}
+
+#controlCard {
+    width: 100%;
+    max-width: 600px; /* 限制最大寬度 */
+}
+
+/* 黑暗模式文字顏色 */
+.dark-mode .card-header h3 {
+    color: #ffffff;
+}
+
+.dark-mode #currentStationName {
+    color: #ffffff;
+}
+
+/* 音量控制圖示樣式 */
+.volume-control .bi {
+    font-size: 1.5rem; /* 放大圖示 */
+    cursor: pointer;
+}
+
+/* 黑暗模式下的音量圖示顏色 */
+.dark-mode .volume-control .bi {
+    color: #ffffff;
+}

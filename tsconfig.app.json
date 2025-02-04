@@ -4,7 +4,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./out-tsc/app",
-    "target": "ES5",
+    "target": "ES2022",
     "types": []
   },
   "files": [

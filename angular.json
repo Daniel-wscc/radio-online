@@ -40,7 +40,7 @@
                 "node_modules"
               ]
             },
-            "baseHref": "/radio-online-es5/"
+            "baseHref": "/radio-online/"
           },
           "configurations": {
             "production": {

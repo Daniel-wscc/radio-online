@@ -8,12 +8,13 @@
     <!-- Bootstrap Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
     <link href="styles.css" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 <body>
     <div class="container-fluid">
-        <div class="row vh-100">
+        <div class="row flex-column flex-md-row vh-100">
             <!-- 左側選單 -->
-            <div class="col-md-3 bg-light sidebar">
+            <div class="col-md-3 sidebar order-1 order-md-1">
                 <div class="d-flex justify-content-between align-items-center p-3 bg-dark text-white">
                     <div class="d-flex align-items-center">
                         <h2 class="mb-0">芯禾電台TV</h2>
@@ -30,7 +31,7 @@
             </div>
 
             <!-- 右側內容區 -->
-            <div class="col-md-9 bg-white">
+            <div class="col-md-9 bg-white order-2 order-md-2">
                 <div id="playerContainer" class="p-4">
                     <!-- 音頻播放器 -->
                     <audio id="audioPlayer" crossorigin="anonymous"></audio>

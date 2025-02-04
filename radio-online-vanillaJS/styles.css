@@ -171,3 +171,100 @@ body {
 .dark-mode .volume-control .bi {
     color: #ffffff;
 }
+
+/* 音量滑桿樣式 */
+.form-range {
+    height: 8px;
+    -webkit-appearance: none;
+    background: transparent;
+}
+
+.form-range::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 8px;
+    background: linear-gradient(to right, #198754 var(--value, 0%), #dee2e6 var(--value, 0%));
+    border-radius: 4px;
+}
+
+.form-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    margin-top: -4px;
+    width: 16px;
+    height: 16px;
+    background: #198754;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+/* 黑暗模式下的音量滑桿 */
+.dark-mode .form-range::-webkit-slider-runnable-track {
+    background: linear-gradient(to right, #198754 var(--value, 0%), #4a4a4a var(--value, 0%));
+}
+
+/* RWD 相關樣式 */
+@media (max-width: 767px) {
+    .vh-100 {
+        height: auto !important;
+    }
+
+    .sidebar {
+        height: auto;
+        max-height: 40vh;
+        overflow-y: auto;
+        min-height: auto !important; /* 移除最小高度限制 */
+    }
+
+    #playerContainer {
+        min-height: auto;
+        padding: 1rem;
+        justify-content: flex-start;
+    }
+
+    .row {
+        gap: 0 !important; /* 移除行間距 */
+    }
+
+    .youtube-container {
+        padding-top: 75%; /* 調整移動裝置上的影片比例 */
+    }
+
+    /* 調整標題大小 */
+    h2 {
+        font-size: 1.5rem;
+    }
+
+    /* 調整電台列表項目的padding */
+    .station-item {
+        padding: 0.75rem;
+    }
+
+    /* 調整播放控制區域的間距 */
+    .card {
+        margin-bottom: 1rem;
+    }
+
+    /* 調整播放清單容器的高度 */
+    #playlistContainer {
+        max-height: 40vh;
+        overflow-y: auto;
+    }
+}
+
+/* 桌面版才套用 100vh */
+@media (min-width: 768px) {
+    .sidebar {
+        height: 100vh;
+    }
+}
+
+/* 優化播放清單在移動裝置上的顯示 */
+.playlist-item {
+    padding: 0.5rem;
+}
+
+@media (max-width: 767px) {
+    .playlist-item .btn-group {
+        display: flex;
+        gap: 0.25rem;
+    }
+}

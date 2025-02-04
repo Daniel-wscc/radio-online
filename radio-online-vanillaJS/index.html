@@ -57,6 +57,15 @@
                                 <div class="youtube-container">
                                     <div id="youtubePlayer"></div>
                                 </div>
+                                <!-- 播放控制按鈕 - 移到這裡 -->
+                                <div class="playback-controls d-flex justify-content-center gap-3 my-3">
+                                    <button class="btn btn-outline-primary" id="prevButton" disabled>
+                                        <i class="bi bi-skip-backward-fill"></i>
+                                    </button>
+                                    <button class="btn btn-outline-primary" id="nextButton" disabled>
+                                        <i class="bi bi-skip-forward-fill"></i>
+                                    </button>
+                                </div>
                                 <div class="playlist-controls">
                                     <textarea class="form-control mb-2" id="youtubeUrlInput" rows="3" 
                                             placeholder="請輸入 YouTube 網址（每行一個）"></textarea>

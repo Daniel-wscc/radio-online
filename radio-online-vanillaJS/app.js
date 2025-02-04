@@ -73,6 +73,9 @@ function init() {
     setupSocketListeners();
     setupTheme();
     loadYouTubeAPI();
+    
+    // 請求當前狀態
+    socket.emit('requestCurrentState');
 }
 
 // 載入電台列表
@@ -108,6 +111,9 @@ function setupEventListeners() {
     volumeSlider.addEventListener('input', function(e) {
         var volume = e.target.value / 100;
         audioPlayer.volume = volume;
+        if (youtubePlayer && youtubePlayer.setVolume) {
+            youtubePlayer.setVolume(volume * 100);
+        }
         updateRadioState();
     });
 
@@ -215,7 +221,6 @@ function updateRadioState() {
     var state = {
         currentStation: currentStation,
         isPlaying: !audioPlayer.paused,
-        volume: audioPlayer.volume,
         youtubeState: {
             isYoutubeMode: isYoutubeMode,
             playlist: playlist,
@@ -228,87 +233,117 @@ function updateRadioState() {
 
 // 設置 Socket 監聽器
 function setupSocketListeners() {
+    // 添加當前狀態回應的處理
+    socket.on('currentState', function(state) {
+        if (state) {
+            // 使用與 radioStateUpdate 相同的邏輯處理狀態
+            handleStateUpdate(state);
+        }
+    });
+
     socket.on('radioStateUpdate', function(state) {
         console.log('收到狀態更新:', state);
-
-        // 先檢查是否需要切換模式
-        var needModeSwitch = (state.youtubeState && state.youtubeState.isYoutubeMode) !== isYoutubeMode;
-        
-        if (state.youtubeState && state.youtubeState.isYoutubeMode) {
-            // 強制切換到 YouTube 模式
-            isYoutubeMode = true;
-            playlist = state.youtubeState.playlist || [];
-            
-            // 強制更新 UI 狀態
-            controlCard.style.display = 'none';
-            youtubeSection.style.display = 'block';
-            currentStationName.textContent = 'YouTube 播放器';
-            
-            // 停止音頻播放
-            if (audioPlayer) {
-                audioPlayer.pause();
-                audioPlayer.src = '';
-            }
-            
-            // 更新播放狀態
-            if (currentVideoIndex !== state.youtubeState.currentIndex) {
-                currentVideoIndex = state.youtubeState.currentIndex;
-                if (currentVideoIndex >= 0 && youtubePlayer && youtubePlayer.loadVideoById) {
-                    youtubePlayer.loadVideoById(playlist[currentVideoIndex].id);
-                }
-            }
-            
-            updatePlaylistUI();
-        } else if (state.currentStation) {
-            // 強制切換到電台模式
-            isYoutubeMode = false;
-            
-            // 強制停止 YouTube 播放
-            if (youtubePlayer && youtubePlayer.stopVideo) {
-                youtubePlayer.stopVideo();
-            }
-            
-            // 強制更新 UI 狀態
-            controlCard.style.display = 'block';
-            youtubeSection.style.display = 'none';
-            
-            // 無條件切換電台
-            currentStation = state.currentStation;
-            currentStationName.textContent = state.currentStation.name;
-            
-            // 更新電台播放狀態
-            if (audioPlayer) {
-                if (state.currentStation.url.endsWith('m3u8')) {
-                    playHLSStream(state.currentStation.url);
-                } else {
-                    audioPlayer.src = state.currentStation.url;
-                    audioPlayer.play();
-                }
-            }
-            
-            // 更新電台列表選中狀態
-            var allStations = document.querySelectorAll('.station-item');
-            allStations.forEach(function(item) {
-                item.classList.remove('active');
-                if (item.dataset.stationId === state.currentStation.id) {
-                    item.classList.add('active');
-                }
-            });
-        }
-
-        // 同步音量
-        if (typeof state.volume === 'number') {
-            audioPlayer.volume = state.volume;
-            volumeSlider.value = state.volume * 100;
-            if (youtubePlayer && youtubePlayer.setVolume) {
-                youtubePlayer.setVolume(state.volume * 100);
-            }
-        }
+        handleStateUpdate(state);
     });
 
     socket.on('onlineUsers', function(count) {
         document.getElementById('onlineUsers').textContent = '線上人數: ' + count;
     });
+}
+
+// 新增處理狀態更新的函數
+function handleStateUpdate(state) {
+    // 先檢查是否需要切換模式
+    var needModeSwitch = (state.youtubeState && state.youtubeState.isYoutubeMode) !== isYoutubeMode;
+    
+    if (state.youtubeState && state.youtubeState.isYoutubeMode) {
+        // 強制切換到 YouTube 模式
+        isYoutubeMode = true;
+        
+        // 檢查播放清單是否被清空
+        if (!state.youtubeState.playlist || state.youtubeState.playlist.length === 0) {
+            playlist = [];
+            currentVideoIndex = -1;
+            if (youtubePlayer && youtubePlayer.stopVideo) {
+                youtubePlayer.stopVideo();
+            }
+        } else {
+            playlist = state.youtubeState.playlist || [];
+            // 如果有播放清單且當前索引有效，則播放對應視頻
+            if (state.youtubeState.currentIndex >= 0 && 
+                state.youtubeState.currentIndex < playlist.length) {
+                currentVideoIndex = state.youtubeState.currentIndex;
+                if (youtubePlayer && youtubePlayer.loadVideoById) {
+                    youtubePlayer.loadVideoById({
+                        videoId: playlist[currentVideoIndex].id,
+                        startSeconds: undefined,
+                        suggestedQuality: 'default'
+                    });
+                } else {
+                    // 如果播放器還沒準備好，等待它準備好
+                    var checkPlayerInterval = setInterval(function() {
+                        if (youtubePlayer && youtubePlayer.loadVideoById) {
+                            youtubePlayer.loadVideoById({
+                                videoId: playlist[currentVideoIndex].id,
+                                startSeconds: undefined,
+                                suggestedQuality: 'default'
+                            });
+                            clearInterval(checkPlayerInterval);
+                        }
+                    }, 1000);
+                }
+            }
+        }
+        
+        // 強制更新 UI 狀態
+        controlCard.style.display = 'none';
+        youtubeSection.style.display = 'block';
+        currentStationName.textContent = 'YouTube 播放器';
+        
+        // 停止音頻播放
+        if (audioPlayer) {
+            audioPlayer.pause();
+            audioPlayer.src = '';
+        }
+        
+        updatePlaylistUI();
+        updateNavigationButtons();
+    } else if (state.currentStation) {
+        // 強制切換到電台模式
+        isYoutubeMode = false;
+        
+        // 強制停止 YouTube 播放
+        if (youtubePlayer && youtubePlayer.stopVideo) {
+            youtubePlayer.stopVideo();
+        }
+        
+        // 強制更新 UI 狀態
+        controlCard.style.display = 'block';
+        youtubeSection.style.display = 'none';
+        
+        // 無條件切換電台
+        currentStation = state.currentStation;
+        currentStationName.textContent = state.currentStation.name;
+        
+        // 更新電台播放狀態
+        if (audioPlayer) {
+            if (state.currentStation.url.endsWith('m3u8')) {
+                playHLSStream(state.currentStation.url);
+            } else {
+                audioPlayer.src = state.currentStation.url;
+                audioPlayer.play();
+            }
+        }
+        
+        // 更新電台列表選中狀態
+        var allStations = document.querySelectorAll('.station-item');
+        allStations.forEach(function(item) {
+            item.classList.remove('active');
+            if (item.dataset.stationId === state.currentStation.id) {
+                item.classList.add('active');
+            }
+        });
+    }
 }
 
 // 設置主題
@@ -499,8 +534,6 @@ function playYoutubeIndex(index) {
         currentVideoIndex = index;
         if (youtubePlayer && youtubePlayer.loadVideoById) {
             youtubePlayer.loadVideoById(playlist[index].id);
-            // 確保音量同步
-            youtubePlayer.setVolume(audioPlayer.volume * 100);
         }
         updatePlaylistUI();
         updateRadioState();

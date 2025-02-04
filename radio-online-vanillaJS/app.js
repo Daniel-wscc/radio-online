@@ -61,6 +61,10 @@ var playlistContainer = document.getElementById('playlistContainer');
 // 添加新的 DOM 元素引用
 var controlCard = document.getElementById('controlCard');
 
+// 新增全域變數
+var prevButton = document.getElementById('prevButton');
+var nextButton = document.getElementById('nextButton');
+
 // 初始化
 function init() {
     loadStations();
@@ -121,6 +125,20 @@ function setupEventListeners() {
 
     // 主題切換
     document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+
+    // 上一首按鈕
+    prevButton.addEventListener('click', function() {
+        if (currentVideoIndex > 0) {
+            playYoutubeIndex(currentVideoIndex - 1);
+        }
+    });
+
+    // 下一首按鈕
+    nextButton.addEventListener('click', function() {
+        if (currentVideoIndex < playlist.length - 1) {
+            playYoutubeIndex(currentVideoIndex + 1);
+        }
+    });
 }
 
 // 獲取標籤顏色
@@ -405,7 +423,8 @@ function switchToYoutube() {
         youtubePlayer.loadVideoById(playlist[currentVideoIndex].id);
     }
 
-    updateRadioState();
+    updatePlaylistUI();
+    updateNavigationButtons();
 }
 
 // 載入 YouTube 播放清單
@@ -469,6 +488,9 @@ function updatePlaylistUI() {
 
         playlistContainer.appendChild(item);
     });
+
+    // 更新按鈕狀態
+    updateNavigationButtons();
 }
 
 // 播放指定索引的視頻
@@ -513,6 +535,7 @@ function clearYoutubePlaylist() {
     }
     updatePlaylistUI();
     updateRadioState();
+    updateNavigationButtons();
 }
 
 // YouTube 播放器狀態改變事件
@@ -551,6 +574,17 @@ function getVideoDetails(videoId, callback) {
         .catch(function() {
             callback(null);
         });
+}
+
+// 新增函數：更新導航按鈕狀態
+function updateNavigationButtons() {
+    if (playlist.length === 0) {
+        prevButton.disabled = true;
+        nextButton.disabled = true;
+    } else {
+        prevButton.disabled = currentVideoIndex <= 0;
+        nextButton.disabled = currentVideoIndex >= playlist.length - 1;
+    }
 }
 
 // 在文檔加載完成後初始化

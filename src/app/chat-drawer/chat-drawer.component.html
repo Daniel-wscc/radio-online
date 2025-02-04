@@ -1,7 +1,13 @@
-<p-sidebar [(visible)]="visible" position="right" [style]="{width:'300px'}" styleClass="p-sidebar-sm" [modal]="false">
+<p-panel [toggleable]="true" [collapsed]="!visible" 
+         (collapsedChange)="onCollapsedChange($event)"
+         styleClass="chat-panel dark:bg-gray-800"
+         [style]="{'position': 'fixed', 'bottom': '20px', 'right': '20px', 'width': '300px', 'z-index': '1000'}"
+         header="聊天室">
+    <ng-template pTemplate="icons">
+        <span *ngIf="unreadCount > 0" class="p-badge p-badge-danger">{{unreadCount}}</span>
+    </ng-template>
     <div class="flex flex-col h-full dark:bg-gray-800 dark:text-white">
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-bold dark:text-white">聊天室</h3>
+        <div class="flex justify-end items-center mb-4">
             <div class="flex gap-2">
                 <button pButton icon="pi pi-user" (click)="setUserName()" pTooltip="設定名稱"></button>
             </div>
@@ -24,18 +30,11 @@
         <div class="flex gap-2">
             <input type="text" pInputText [(ngModel)]="newMessage" 
                    (keyup.enter)="sendMessage()" 
-                   (click)="$event.stopPropagation()"
                    placeholder="輸入訊息..." 
                    class="flex-1 dark:bg-gray-700 dark:text-white dark:border-gray-600">
             <button pButton icon="pi pi-send" 
-                    (click)="sendMessage(); $event.stopPropagation()">
+                    (click)="sendMessage()">
             </button>
         </div>
     </div>
-</p-sidebar>
-
-<button pButton icon="pi pi-comments" 
-        class="chat-toggle-button" 
-        (click)="visible = true"
-        [style]="{'position': 'fixed', 'bottom': '20px', 'right': '20px', 'z-index': '1000'}">
-</button>
+</p-panel>

@@ -109,10 +109,12 @@ function createTagsHtml(tags) {
 function setupEventListeners() {
     // 音量控制
     volumeSlider.addEventListener('input', function(e) {
-        var volume = e.target.value;
-        audioPlayer.volume = volume / 100;
+        var volume = e.target.value / 100;
+        audioPlayer.volume = volume;
         // 更新滑桿顏色
-        e.target.style.setProperty('--value', volume + '%');
+        e.target.style.setProperty('--value', e.target.value + '%');
+        // 發送音量更新到伺服器
+        updateRadioState();
     });
 
     // 初始化滑桿顏色
@@ -222,6 +224,7 @@ function updateRadioState() {
     var state = {
         currentStation: currentStation,
         isPlaying: !audioPlayer.paused,
+        volume: audioPlayer.volume,  // 添加音量資訊
         youtubeState: {
             isYoutubeMode: isYoutubeMode,
             playlist: playlist,
@@ -254,9 +257,16 @@ function setupSocketListeners() {
 
 // 新增處理狀態更新的函數
 function handleStateUpdate(state) {
-    // 先檢查是否需要切換模式
+    // 檢查是否需要切換模式
     var needModeSwitch = (state.youtubeState && state.youtubeState.isYoutubeMode) !== isYoutubeMode;
     
+    // 同步音量設置
+    if (state.volume !== undefined) {
+        audioPlayer.volume = state.volume;
+        volumeSlider.value = state.volume * 100;
+        volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
+    }
+
     if (state.youtubeState && state.youtubeState.isYoutubeMode) {
         // 強制切換到 YouTube 模式
         isYoutubeMode = true;
@@ -270,9 +280,15 @@ function handleStateUpdate(state) {
             }
         } else {
             playlist = state.youtubeState.playlist || [];
-            // 如果有播放清單且當前索引有效，則播放對應視頻
-            if (state.youtubeState.currentIndex >= 0 && 
-                state.youtubeState.currentIndex < playlist.length) {
+            
+            // 只有在以下情況才更新播放狀態：
+            // 1. 當前沒有播放任何視頻
+            // 2. 播放索引發生變化
+            // 3. 需要模式切換
+            if (currentVideoIndex === -1 || 
+                currentVideoIndex !== state.youtubeState.currentIndex ||
+                needModeSwitch) {
+                
                 currentVideoIndex = state.youtubeState.currentIndex;
                 if (youtubePlayer && youtubePlayer.loadVideoById) {
                     youtubePlayer.loadVideoById({
@@ -280,18 +296,6 @@ function handleStateUpdate(state) {
                         startSeconds: undefined,
                         suggestedQuality: 'default'
                     });
-                } else {
-                    // 如果播放器還沒準備好，等待它準備好
-                    var checkPlayerInterval = setInterval(function() {
-                        if (youtubePlayer && youtubePlayer.loadVideoById) {
-                            youtubePlayer.loadVideoById({
-                                videoId: playlist[currentVideoIndex].id,
-                                startSeconds: undefined,
-                                suggestedQuality: 'default'
-                            });
-                            clearInterval(checkPlayerInterval);
-                        }
-                    }, 1000);
                 }
             }
         }
@@ -322,17 +326,22 @@ function handleStateUpdate(state) {
         controlCard.style.display = 'block';
         youtubeSection.style.display = 'none';
         
-        // 無條件切換電台
-        currentStation = state.currentStation;
-        currentStationName.textContent = state.currentStation.name;
-        
-        // 更新電台播放狀態
-        if (audioPlayer) {
-            if (state.currentStation.url.endsWith('m3u8')) {
-                playHLSStream(state.currentStation.url);
-            } else {
-                audioPlayer.src = state.currentStation.url;
-                audioPlayer.play();
+        // 只有在電台改變時才切換
+        if (!currentStation || currentStation.id !== state.currentStation.id) {
+            currentStation = state.currentStation;
+            currentStationName.textContent = state.currentStation.name;
+            
+            // 更新電台播放狀態
+            if (audioPlayer) {
+                if (state.currentStation.url.endsWith('m3u8')) {
+                    playHLSStream(state.currentStation.url);
+                } else {
+                    // 使用 Promise 處理播放請求
+                    audioPlayer.src = state.currentStation.url;
+                    audioPlayer.play().catch(function(error) {
+                        console.log('播放請求被中斷，這是正常的:', error);
+                    });
+                }
             }
         }
         

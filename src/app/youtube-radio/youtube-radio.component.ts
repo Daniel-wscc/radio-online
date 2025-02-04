@@ -117,32 +117,36 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
     const urls = this.urlInput.split('\n').filter(url => url.trim());
     const newVideos: Array<{ id: string, title?: string }> = [];
     
-    for (const url of urls) {
-      try {
-        const videoId = this.extractVideoId(url);
-        if (videoId) {
-          // 獲取影片標題
-          const title = await this.getVideoTitle(videoId);
-          newVideos.push({
-            id: videoId,
-            title: title || videoId // 如果無法獲取標題，使用 ID
-          });
-        }
-      } catch (error) {
-        console.error('Error processing URL:', url, error);
+    // 批次處理所有 URL
+    const videoIds = urls
+      .map(url => this.extractVideoId(url))
+      .filter(id => id) as string[];
+
+    try {
+      // 批次獲取所有影片標題
+      const titles = await Promise.all(
+        videoIds.map(id => this.getVideoTitle(id))
+      );
+
+      // 組合結果
+      newVideos.push(...videoIds.map((id, index) => ({
+        id,
+        title: titles[index] || id
+      })));
+
+      // 將新影片加入到現有播放清單的最後
+      this.playlist = [...this.playlist, ...newVideos];
+      this.urlInput = '';
+
+      // 如果目前沒有播放任何影片且播放清單不為空，開始播放第一首
+      if (this.currentIndex === -1 && this.playlist.length > 0) {
+        this.playIndex(0);
       }
-    }
-    
-    // 將新影片加入到現有播放清單的最後
-    this.playlist = [...this.playlist, ...newVideos];
-    this.urlInput = '';
 
-    // 如果目前沒有播放任何影片且播放清單不為空，開始播放第一首
-    if (this.currentIndex === -1 && this.playlist.length > 0) {
-      this.playIndex(0);
+      this.syncYoutubeState();
+    } catch (error) {
+      console.error('Error processing URLs:', error);
     }
-
-    this.syncYoutubeState();
   }
 
   private async getVideoTitle(videoId: string): Promise<string> {

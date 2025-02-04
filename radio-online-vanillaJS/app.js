@@ -109,13 +109,14 @@ function createTagsHtml(tags) {
 function setupEventListeners() {
     // 音量控制
     volumeSlider.addEventListener('input', function(e) {
-        var volume = e.target.value / 100;
-        audioPlayer.volume = volume;
-        if (youtubePlayer && youtubePlayer.setVolume) {
-            youtubePlayer.setVolume(volume * 100);
-        }
-        updateRadioState();
+        var volume = e.target.value;
+        audioPlayer.volume = volume / 100;
+        // 更新滑桿顏色
+        e.target.style.setProperty('--value', volume + '%');
     });
+
+    // 初始化滑桿顏色
+    volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
 
     // 電台選擇
     stationList.addEventListener('click', function(e) {

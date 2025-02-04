@@ -1,0 +1,73 @@
+.chat-panel {
+    margin-bottom: 0 !important;
+}
+
+.chat-panel .p-panel-header {
+    background-color: inherit;
+    border: none;
+}
+
+.chat-panel .p-panel-content {
+    border: none;
+    background-color: inherit;
+    height: calc(100vh - 100px) !important; /* 調整為視窗高度減去一些間距 */
+}
+
+.dark .chat-panel .p-panel-header,
+.dark .chat-panel .p-panel-content {
+    background-color: #1f2937 !important;
+    color: white;
+}
+
+.dark .chat-panel .p-panel-header-icon {
+    color: white;
+}
+
+.dark .chat-panel .p-panel-header-icon:hover {
+    background-color: #374151;
+    color: white;
+}
+
+.dark .chat-panel .p-panel-title {
+    color: #f3f4f6 !important;
+}
+
+.p-badge {
+    background-color: #ef4444 !important;
+    color: white !important;
+    font-weight: bold;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    line-height: 1.5rem;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 0.5rem;
+}
+
+.dark .p-badge {
+    background-color: #dc2626 !important;
+    color: white !important;
+}
+
+:host ::ng-deep .dark .chat-panel .p-panel-header {
+    color: #f3f4f6 !important; /* Tailwind's gray-100 */
+}
+
+:host ::ng-deep .dark .chat-panel .p-panel-title {
+    color: #f3f4f6 !important; /* Tailwind's gray-100 */
+}
+
+:host ::ng-deep .dark .chat-panel span.p-panel-title {
+    color: #f3f4f6 !important; /* Tailwind's gray-100 */
+}
+
+:host ::ng-deep .dark .chat-panel #pn_id_1_header {
+    color: #f3f4f6 !important; /* Tailwind's gray-100 */
+}
+
+:host ::ng-deep .dark .chat-panel .p-panel-header * {
+    color: #f3f4f6 !important;
+} 
+

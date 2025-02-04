@@ -45,6 +45,9 @@ var currentVideoIndex = -1;
 var socket = io('https://radio.wscc1031.synology.me');
 var isDarkMode = false;
 
+// 添加全域變數追蹤全螢幕狀態
+var wasFullscreen = false;
+
 // DOM 元素
 var audioPlayer = document.getElementById('audioPlayer');
 var volumeSlider = document.getElementById('volumeSlider');
@@ -148,6 +151,12 @@ function setupEventListeners() {
             playYoutubeIndex(currentVideoIndex + 1);
         }
     });
+
+    // 監聽全螢幕狀態變更
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
 }
 
 // 獲取標籤顏色
@@ -587,10 +596,17 @@ function clearYoutubePlaylist() {
     updateRadioState();
     updateNavigationButtons();
 }
-// YouTube 播放器狀態改變事件
+
+// 修改 onPlayerStateChange 函數
 function onPlayerStateChange(event) {
     // 當視頻結束時
     if (event.data === YT.PlayerState.ENDED) {
+        // 記錄當前的全螢幕狀態
+        wasFullscreen = !!(document.fullscreenElement || 
+                          document.webkitFullscreenElement || 
+                          document.mozFullScreenElement || 
+                          document.msFullscreenElement);
+        
         if (currentVideoIndex < playlist.length - 1) {
             playYoutubeIndex(currentVideoIndex + 1);
         } else {
@@ -598,8 +614,25 @@ function onPlayerStateChange(event) {
             playYoutubeIndex(0);
         }
     }
-    // 當視頻開始播放時
+    // 當新視頻開始播放時
     else if (event.data === YT.PlayerState.PLAYING) {
+        // 如果之前是全螢幕，嘗試恢復全螢幕狀態
+        if (wasFullscreen) {
+            try {
+                var elem = document.documentElement;
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen();
+                } else if (elem.webkitRequestFullscreen) {
+                    elem.webkitRequestFullscreen();
+                } else if (elem.msRequestFullscreen) {
+                    elem.msRequestFullscreen();
+                } else if (elem.mozRequestFullScreen) {
+                    elem.mozRequestFullScreen();
+                }
+            } catch (error) {
+                console.log('恢復全螢幕失敗:', error);
+            }
+        }
         updateRadioState();
     }
 }
@@ -632,6 +665,14 @@ function updateNavigationButtons() {
         prevButton.disabled = currentVideoIndex <= 0;
         nextButton.disabled = currentVideoIndex >= playlist.length - 1;
     }
+}
+
+// 處理全螢幕狀態變更
+function handleFullscreenChange() {
+    wasFullscreen = !!(document.fullscreenElement || 
+                      document.webkitFullscreenElement || 
+                      document.mozFullScreenElement || 
+                      document.msFullscreenElement);
 }
 
 // 在文檔加載完成後初始化

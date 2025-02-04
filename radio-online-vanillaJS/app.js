@@ -579,10 +579,8 @@ function onPlayerStateChange(event) {
         if (currentVideoIndex < playlist.length - 1) {
             playYoutubeIndex(currentVideoIndex + 1);
         } else {
-            // 播放列表結束
-            currentVideoIndex = -1;
-            updatePlaylistUI();
-            updateRadioState();
+            // 播放列表結束時，從頭開始播放
+            playYoutubeIndex(0);
         }
     }
     // 當視頻開始播放時

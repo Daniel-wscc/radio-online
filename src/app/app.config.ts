@@ -2,13 +2,23 @@ import { ApplicationConfig, importProvidersFrom } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { providePrimeNG } from 'primeng/config';
-import { SocketIoModule } from 'ngx-socket-io';
+import { SocketIoModule, SocketIoConfig } from 'ngx-socket-io';
 
 import Aura from '@primeng/themes/aura';
 
 import { routes } from './app.routes';
 
-const config = { url: 'https://radio.wscc1031.synology.me', options: {} };
+const config: SocketIoConfig = { 
+  url: 'https://radio.wscc1031.synology.me', 
+  options: {
+    transports: ['polling', 'websocket'],
+    autoConnect: true,
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    timeout: 5000
+  }
+};
 
 export const appConfig: ApplicationConfig = {
   providers: [

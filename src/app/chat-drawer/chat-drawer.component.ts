@@ -34,12 +34,12 @@ export class ChatDrawerComponent {
   constructor(private chatService: ChatService) {
     this.messages$ = this.chatService.messages$;
     
-    // 修改監聽邏輯，只在有新訊息時增加未讀數
+    // 修改監聽邏輯，只在有新訊息且不是系統訊息時增加未讀數
     this.messages$.subscribe(messages => {
-      // 只有在有訊息且聊天室關閉時才增加未讀數
       if (!this.visible && messages && messages.length > 0) {
-        // 使用上一次的訊息長度來判斷是否真的有新訊息
-        if (!this.lastMessageCount || messages.length > this.lastMessageCount) {
+        const lastMessage = messages[messages.length - 1];
+        // 只有在不是系統訊息時才增加未讀數
+        if (!lastMessage.isSystem && (!this.lastMessageCount || messages.length > this.lastMessageCount)) {
           this.unreadCount++;
         }
         this.lastMessageCount = messages.length;

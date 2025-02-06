@@ -6,6 +6,7 @@ export interface ChatMessage {
   userName: string;
   message: string;
   timestamp: number;
+  isSystem?: boolean;
 }
 
 @Injectable({
@@ -37,5 +38,15 @@ export class ChatService {
 
   setChatVisible(visible: boolean) {
     this.chatVisibleSubject.next(visible);
+  }
+
+  sendSystemMessage(message: string) {
+    const chatMessage: ChatMessage = {
+      userName: 'System',
+      message,
+      timestamp: Date.now(),
+      isSystem: true
+    };
+    this.socket.emit('chatMessage', chatMessage);
   }
 } 

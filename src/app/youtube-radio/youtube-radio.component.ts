@@ -48,6 +48,8 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   videoHeight: number | undefined;
 
   private isPlayerReady = false;  // 新增此變數追蹤播放器狀態
+  private maxRetries = 5;  // 最大重試次數
+  private retryCount = 0;  // 當前重試次數
 
   constructor(
     private radioSync: RadioSyncService,
@@ -267,14 +269,38 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   private safePlayVideo() {
     if (this.youtubePlayer && this.isPlayerReady) {
       try {
-        this.youtubePlayer.playVideo();
+        // 檢查當前播放狀態
+        const playerState = this.youtubePlayer.getPlayerState();
+        
+        // YouTube Player States:
+        // -1 (未開始)
+        // 0 (結束)
+        // 1 (正在播放)
+        // 2 (暫停)
+        // 3 (緩衝中)
+        // 5 (已插入影片)
+        
+        if (playerState !== 1 && playerState !== 3) {  // 不是正在播放或緩衝中
+          this.youtubePlayer.playVideo();
+        }
+        this.retryCount = 0;
       } catch (error) {
-        console.error('播放失敗，1秒後重試:', error);
-        setTimeout(() => this.safePlayVideo(), 1000);
+        this.retryCount++;
+        if (this.retryCount < this.maxRetries) {
+          console.log(`播放失敗，第 ${this.retryCount} 次重試`);
+          setTimeout(() => this.safePlayVideo(), 1000);
+        } else {
+          console.error('播放失敗，已達最大重試次數');
+          this.retryCount = 0;
+        }
       }
-    } else {
-      console.log('播放器未就緒，1秒後重試');
+    } else if (this.retryCount < this.maxRetries) {
+      this.retryCount++;
+      console.log(`播放器未就緒，第 ${this.retryCount} 次重試`);
       setTimeout(() => this.safePlayVideo(), 1000);
+    } else {
+      console.error('播放器初始化失敗，已達最大重試次數');
+      this.retryCount = 0;
     }
   }
 

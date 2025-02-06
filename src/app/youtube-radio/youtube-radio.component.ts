@@ -287,7 +287,7 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
       } catch (error) {
         this.retryCount++;
         if (this.retryCount < this.maxRetries) {
-          console.log(`播放失敗，第 ${this.retryCount} 次重試`);
+          // console.log(`播放失敗，第 ${this.retryCount} 次重試`);
           setTimeout(() => this.safePlayVideo(), 1000);
         } else {
           console.error('播放失敗，已達最大重試次數');

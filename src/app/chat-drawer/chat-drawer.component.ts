@@ -55,6 +55,7 @@ export class ChatDrawerComponent {
   // 重置未讀數時也重置最後訊息數
   onCollapsedChange(event: boolean) {
     this.visible = !event;
+    this.chatService.setChatVisible(this.visible);
     if (this.visible) {
         this.unreadCount = 0;
         this.messages$.subscribe(messages => {

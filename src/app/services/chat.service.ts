@@ -15,6 +15,9 @@ export class ChatService {
   private messages = new BehaviorSubject<ChatMessage[]>([]);
   messages$ = this.messages.asObservable();
 
+  private chatVisibleSubject = new BehaviorSubject<boolean>(false);
+  chatVisible$ = this.chatVisibleSubject.asObservable();
+
   constructor(private socket: Socket) {
     this.socket.fromEvent<ChatMessage>('newChatMessage').subscribe(message => {
       const currentMessages = this.messages.value;
@@ -30,5 +33,9 @@ export class ChatService {
       timestamp: Date.now()
     };
     this.socket.emit('chatMessage', chatMessage);
+  }
+
+  setChatVisible(visible: boolean) {
+    this.chatVisibleSubject.next(visible);
   }
 } 

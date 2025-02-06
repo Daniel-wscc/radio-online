@@ -183,6 +183,10 @@ function playStation(station) {
     if (isYoutubeMode) {
         isYoutubeMode = false;
         youtubeSection.style.display = 'none';
+        // 停止 YouTube 播放
+        if (youtubePlayer && youtubePlayer.stopVideo) {
+            youtubePlayer.stopVideo();
+        }
         // 顯示音量控制卡片
         controlCard.style.display = 'block';
     }
@@ -324,47 +328,40 @@ function handleStateUpdate(state) {
         updatePlaylistUI();
         updateNavigationButtons();
     } else if (state.currentStation) {
-        // 如果之前是 YouTube 模式，需要先清理
-        if (isYoutubeMode) {
-            isYoutubeMode = false;
-            if (youtubePlayer && youtubePlayer.stopVideo) {
-                youtubePlayer.stopVideo();
+        // 強制清理 YouTube 模式
+        isYoutubeMode = false;
+        youtubeSection.style.display = 'none';
+        if (youtubePlayer && youtubePlayer.stopVideo) {
+            youtubePlayer.stopVideo();
+        }
+        controlCard.style.display = 'block';
+
+        // 確保電台播放
+        currentStation = state.currentStation;
+        currentStationName.textContent = state.currentStation.name;
+        
+        // 強制重新載入並播放電台
+        if (audioPlayer) {
+            var currentVolume = audioPlayer.volume;
+            if (state.currentStation.url.endsWith('m3u8')) {
+                playHLSStream(state.currentStation.url);
+            } else {
+                audioPlayer.src = state.currentStation.url;
+                audioPlayer.volume = currentVolume;
+                var playPromise = audioPlayer.play().catch(function(error) {
+                    console.log('播放請求被中斷，這是正常的:', error);
+                });
             }
-            youtubeSection.style.display = 'none';
-            controlCard.style.display = 'block';
         }
 
-        // 只有在電台改變時才切換
-        if (!currentStation || currentStation.id !== state.currentStation.id) {
-            currentStation = state.currentStation;
-            currentStationName.textContent = state.currentStation.name;
-            
-            // 更新電台播放狀態
-            if (audioPlayer) {
-                var currentVolume = audioPlayer.volume; // 保存當前音量
-                if (state.currentStation.url.endsWith('m3u8')) {
-                    playHLSStream(state.currentStation.url);
-                } else {
-                    audioPlayer.src = state.currentStation.url;
-                    audioPlayer.volume = currentVolume; // 恢復音量
-                    var playPromise = audioPlayer.play();
-                    if (playPromise !== undefined) {
-                        playPromise.catch(function(error) {
-                            console.log('播放請求被中斷，這是正常的:', error);
-                        });
-                    }
-                }
+        // 更新電台列表選中狀態
+        var allStations = document.querySelectorAll('.station-item');
+        allStations.forEach(function(item) {
+            item.classList.remove('active');
+            if (item.dataset.stationId === state.currentStation.id) {
+                item.classList.add('active');
             }
-
-            // 更新電台列表選中狀態
-            var allStations = document.querySelectorAll('.station-item');
-            allStations.forEach(function(item) {
-                item.classList.remove('active');
-                if (item.dataset.stationId === state.currentStation.id) {
-                    item.classList.add('active');
-                }
-            });
-        }
+        });
     }
 }
 

@@ -271,9 +271,6 @@ function handleStateUpdate(state) {
     
     // 同步音量設置
     if (state.volume !== undefined) {
-        // 只在以下情況更新音量：
-        // 1. 不是模式切換
-        // 2. 或者是遠端發來的更新（通過比較當前音量判斷）
         if (!needModeSwitch || Math.abs(state.volume - audioPlayer.volume) > 0.01) {
             audioPlayer.volume = state.volume;
             volumeSlider.value = state.volume * 100;
@@ -293,24 +290,23 @@ function handleStateUpdate(state) {
                 youtubePlayer.stopVideo();
             }
         } else {
-            playlist = state.youtubeState.playlist || [];
+            var oldVideoId = currentVideoIndex >= 0 ? playlist[currentVideoIndex]?.id : null;
+            var newVideoId = state.youtubeState.playlist[state.youtubeState.currentIndex]?.id;
             
-            // 只有在以下情況才更新播放狀態：
-            // 1. 當前沒有播放任何視頻
-            // 2. 播放索引發生變化
-            // 3. 需要模式切換
-            if (currentVideoIndex === -1 || 
-                currentVideoIndex !== state.youtubeState.currentIndex ||
-                needModeSwitch) {
-                
-                currentVideoIndex = state.youtubeState.currentIndex;
-                if (youtubePlayer && youtubePlayer.loadVideoById) {
-                    youtubePlayer.loadVideoById({
-                        videoId: playlist[currentVideoIndex].id,
-                        startSeconds: undefined,
-                        suggestedQuality: 'default'
-                    });
-                }
+            // 更新播放清單
+            playlist = state.youtubeState.playlist;
+            currentVideoIndex = state.youtubeState.currentIndex;
+
+            // 在以下情況需要載入新影片：
+            // 1. 需要模式切換
+            // 2. 切換到不同的影片（包括上一首/下一首）
+            if (youtubePlayer && youtubePlayer.loadVideoById && newVideoId && 
+                (needModeSwitch || oldVideoId !== newVideoId)) {
+                youtubePlayer.loadVideoById({
+                    videoId: newVideoId,
+                    startSeconds: undefined,
+                    suggestedQuality: 'default'
+                });
             }
         }
         

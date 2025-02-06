@@ -1,4 +1,4 @@
-<div class="content-container">
+<div class="content-container" [class.chat-open]="isChatOpen">
   <!-- 播放器區域 -->
   @if(currentVideoId) {
     <div class="player-section">

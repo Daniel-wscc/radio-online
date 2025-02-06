@@ -10,6 +10,7 @@ import { ThemeService } from '../services/theme.service';
 import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
 import { DragDropModule } from '@angular/cdk/drag-drop';
 import { TooltipModule } from 'primeng/tooltip';
+import { ChatService } from '../services/chat.service';
 
 @Component({
   selector: 'app-youtube-radio',
@@ -51,9 +52,12 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   private maxRetries = 5;  // 最大重試次數
   private retryCount = 0;  // 當前重試次數
 
+  isChatOpen = false;
+
   constructor(
     private radioSync: RadioSyncService,
     private themeService: ThemeService,
+    private chatService: ChatService,
     private cdr: ChangeDetectorRef
   ) {
     // 訂閱狀態更新
@@ -84,6 +88,12 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
         this.isDarkTheme = isDark;
         this.cdr.detectChanges();
       });
+    });
+
+    // 監聽聊天室狀態
+    this.chatService.chatVisible$.subscribe(visible => {
+      this.isChatOpen = visible;
+      this.cdr.detectChanges();
     });
   }
 

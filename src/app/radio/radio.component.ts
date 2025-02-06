@@ -1,4 +1,4 @@
-import { Component, OnInit, ElementRef, ViewChild, AfterViewInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, ElementRef, ViewChild, AfterViewInit, ChangeDetectorRef, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RadioBrowserApi } from 'radio-browser-api';
@@ -10,6 +10,7 @@ import { YouTubePlayerModule } from '@angular/youtube-player';
 import { TextareaModule } from 'primeng/textarea';
 import { YoutubeRadioComponent } from '../youtube-radio/youtube-radio.component';
 import { ThemeService } from '../services/theme.service';
+import { ChatService } from '../services/chat.service';
 
 // PrimeNG 組件
 import { InputTextModule } from 'primeng/inputtext';
@@ -44,7 +45,7 @@ import { TagModule } from 'primeng/tag';
   templateUrl: './radio.component.html',
   styleUrls: ['./radio.component.less']
 })
-export class RadioComponent implements OnInit, AfterViewInit {
+export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
   @ViewChild('audioPlayer') audioPlayer!: ElementRef<HTMLAudioElement>;
   private isAudioPlayerReady = false;
   private hasUserInteracted = false;
@@ -115,7 +116,8 @@ export class RadioComponent implements OnInit, AfterViewInit {
   constructor(
     private cdr: ChangeDetectorRef,
     private radioSync: RadioSyncService,
-    private themeService: ThemeService
+    private themeService: ThemeService,
+    private chatService: ChatService
   ) {
     // 訂閱 radioState 的變化
     this.radioSync.radioState$.subscribe((state: RadioState) => {
@@ -282,12 +284,16 @@ export class RadioComponent implements OnInit, AfterViewInit {
     }
   }
 
-  // 新增選擇電台的方法
+  // 修改選擇電台的方法
   selectStation(station: any) {
     this.isYoutubeMode = false;
     this.currentStation = station;
     const url = station.url_resolved || station.url;
     this.playStation(url, station.name);
+    
+    // 發送系統訊息
+    const userName = localStorage.getItem('userName') || '訪客';
+    this.chatService.sendSystemMessage(`${userName} 切換到 ${station.name}`);
     
     let currentState: RadioState = {
       isPlaying: false,
@@ -317,7 +323,7 @@ export class RadioComponent implements OnInit, AfterViewInit {
     });
   }
 
-  // 加入 YouTube 相關方法
+  // 修改切換到 YouTube 的方法
   switchToYoutube() {
     this.isYoutubeMode = true;
     this.currentStation = null;
@@ -325,6 +331,10 @@ export class RadioComponent implements OnInit, AfterViewInit {
       this.audioPlayer.nativeElement.pause();
       this.audioPlayer.nativeElement.src = '';
     }
+
+    // 發送系統訊息
+    const userName = localStorage.getItem('userName') || '訪客';
+    this.chatService.sendSystemMessage(`${userName} 切換到 YouTube 模式`);
 
     // 更新遠端狀態，包含完整的 YouTube 狀態
     this.radioSync.updateState({
@@ -412,5 +422,19 @@ export class RadioComponent implements OnInit, AfterViewInit {
       case 'sport': return 'danger';
       default: return 'secondary';
     }
+  }
+
+  // 添加 ngOnDestroy 方法
+  ngOnDestroy() {
+    // 清理訂閱
+    if (this.audioPlayer?.nativeElement) {
+      this.audioPlayer.nativeElement.pause();
+      this.audioPlayer.nativeElement.src = '';
+    }
+    
+    // 移除事件監聽器
+    window.removeEventListener('click', () => {
+      this.hasUserInteracted = true;
+    });
   }
 }

@@ -16,8 +16,18 @@
         <div class="flex-1 overflow-y-auto mb-4">
             @for (msg of messages$ | async; track msg.timestamp) {
                 <div class="mb-2">
-                    <div class="text-sm text-gray-500 dark:text-gray-400">{{ msg.userName }}</div>
-                    <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded dark:text-white">
+                    <div class="text-sm" [class.text-gray-500]="!msg.isSystem" 
+                         [class.text-blue-500]="msg.isSystem" 
+                         [class.dark:text-gray-400]="!msg.isSystem"
+                         [class.dark:text-blue-400]="msg.isSystem">
+                        {{ msg.userName }}
+                    </div>
+                    <div class="p-2 rounded" 
+                         [class.bg-gray-100]="!msg.isSystem"
+                         [class.bg-blue-50]="msg.isSystem"
+                         [class.dark:bg-gray-700]="!msg.isSystem"
+                         [class.dark:bg-blue-900]="msg.isSystem"
+                         [class.dark:text-white]="true">
                         {{ msg.message }}
                     </div>
                     <div class="text-xs text-gray-400">

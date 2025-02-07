@@ -77,8 +77,14 @@ function init() {
     setupTheme();
     loadYouTubeAPI();
     
-    // 請求當前狀態
+    // 請求當前狀態並設置初始播放
     socket.emit('requestCurrentState');
+    
+    // 監聽連接事件
+    socket.on('connect', function() {
+        console.log('已連接到伺服器，請求當前狀態');
+        socket.emit('requestCurrentState');
+    });
 }
 
 // 載入電台列表
@@ -218,17 +224,25 @@ function playStation(station) {
 }
 
 // 播放 HLS 流
-function playHLSStream(url) {
+function playHLSStream(url, autoplay) {
     if (Hls.isSupported()) {
         var hls = new Hls();
         hls.loadSource(url);
         hls.attachMedia(audioPlayer);
-        hls.on(Hls.Events.MANIFEST_PARSED, function() {
-            audioPlayer.play();
-        });
+        if (autoplay) {
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                audioPlayer.play().catch(function(error) {
+                    console.log('HLS 串流播放失敗:', error);
+                });
+            });
+        }
     } else if (audioPlayer.canPlayType('application/vnd.apple.mpegurl')) {
         audioPlayer.src = url;
-        audioPlayer.play();
+        if (autoplay) {
+            audioPlayer.play().catch(function(error) {
+                console.log('HLS 串流播放失敗:', error);
+            });
+        }
     }
 }
 
@@ -250,11 +264,15 @@ function updateRadioState() {
 
 // 設置 Socket 監聽器
 function setupSocketListeners() {
-    // 添加當前狀態回應的處理
     socket.on('currentState', function(state) {
         if (state) {
-            // 使用與 radioStateUpdate 相同的邏輯處理狀態
-            handleStateUpdate(state);
+            console.log('收到初始狀態:', state);
+            // 強制設置初始播放
+            if (state.currentStation && state.isPlaying) {
+                handleInitialState(state);
+            } else {
+                handleStateUpdate(state);
+            }
         }
     });
 
@@ -273,9 +291,9 @@ function handleStateUpdate(state) {
     // 檢查是否需要切換模式
     var needModeSwitch = (state.youtubeState && state.youtubeState.isYoutubeMode) !== isYoutubeMode;
     
-    // 同步音量設置
-    if (state.volume !== undefined) {
-        if (!needModeSwitch || Math.abs(state.volume - audioPlayer.volume) > 0.01) {
+    // 同步音量
+    if (state.volume !== undefined && !isNaN(state.volume)) {
+        if (Math.abs(state.volume - audioPlayer.volume) > 0.01) {
             audioPlayer.volume = state.volume;
             volumeSlider.value = state.volume * 100;
             volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
@@ -328,7 +346,7 @@ function handleStateUpdate(state) {
         updatePlaylistUI();
         updateNavigationButtons();
     } else if (state.currentStation) {
-        // 強制清理 YouTube 模式
+        // 電台模式處理
         isYoutubeMode = false;
         youtubeSection.style.display = 'none';
         if (youtubePlayer && youtubePlayer.stopVideo) {
@@ -336,21 +354,21 @@ function handleStateUpdate(state) {
         }
         controlCard.style.display = 'block';
 
-        // 確保電台播放
-        currentStation = state.currentStation;
-        currentStationName.textContent = state.currentStation.name;
-        
-        // 強制重新載入並播放電台
-        if (audioPlayer) {
-            var currentVolume = audioPlayer.volume;
+        // 檢查是否需要切換電台
+        if (!currentStation || currentStation.id !== state.currentStation.id) {
+            currentStation = state.currentStation;
+            currentStationName.textContent = state.currentStation.name;
+            
+            // 更新音源並播放
             if (state.currentStation.url.endsWith('m3u8')) {
-                playHLSStream(state.currentStation.url);
+                playHLSStream(state.currentStation.url, state.isPlaying);
             } else {
                 audioPlayer.src = state.currentStation.url;
-                audioPlayer.volume = currentVolume;
-                var playPromise = audioPlayer.play().catch(function(error) {
-                    console.log('播放請求被中斷，這是正常的:', error);
-                });
+                if (state.isPlaying) {
+                    audioPlayer.play().catch(function(error) {
+                        console.log('遠端切換電台播放失敗:', error);
+                    });
+                }
             }
         }
 
@@ -362,6 +380,49 @@ function handleStateUpdate(state) {
                 item.classList.add('active');
             }
         });
+    }
+}
+
+// 新增處理初始狀態的函數
+function handleInitialState(state) {
+    // 設置音量
+    if (state.volume !== undefined && !isNaN(state.volume)) {
+        audioPlayer.volume = state.volume;
+        volumeSlider.value = state.volume * 100;
+        volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
+    }
+
+    // 處理初始電台
+    if (state.currentStation) {
+        currentStation = state.currentStation;
+        currentStationName.textContent = state.currentStation.name;
+        
+        // 更新電台列表選中狀態
+        var allStations = document.querySelectorAll('.station-item');
+        allStations.forEach(function(item) {
+            item.classList.remove('active');
+            if (item.dataset.stationId === state.currentStation.id) {
+                item.classList.add('active');
+            }
+        });
+
+        // 設置音源並自動播放
+        if (state.currentStation.url.endsWith('m3u8')) {
+            playHLSStream(state.currentStation.url, true);
+        } else {
+            audioPlayer.src = state.currentStation.url;
+            audioPlayer.play().catch(function(error) {
+                console.log('初始播放失敗:', error);
+            });
+        }
+    }
+
+    // 處理 YouTube 模式
+    if (state.youtubeState && state.youtubeState.isYoutubeMode) {
+        isYoutubeMode = true;
+        controlCard.style.display = 'none';
+        youtubeSection.style.display = 'block';
+        // ... 其他 YouTube 相關邏輯 ...
     }
 }
 

@@ -268,3 +268,33 @@ body {
         gap: 0.25rem;
     }
 }
+
+.video-js.vjs-audio {
+    min-height: 30px;
+}
+
+.video-js.vjs-audio .vjs-tech {
+    display: none;
+}
+
+.video-js.vjs-audio .vjs-poster {
+    display: none;
+}
+
+.video-js.vjs-audio .vjs-big-play-button {
+    display: none;
+}
+
+.vjs-hide-controls .vjs-control-bar,
+.vjs-hide-controls .vjs-big-play-button,
+.vjs-hide-controls .vjs-loading-spinner,
+.vjs-hide-controls .vjs-error-display,
+.vjs-hide-controls .vjs-text-track-display {
+    display: none !important;
+}
+
+.video-js.vjs-audio {
+    height: 0 !important;
+    min-height: 0 !important;
+    overflow: hidden;
+}

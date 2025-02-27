@@ -214,6 +214,16 @@ function playStation(station) {
         if (station.url.endsWith('m3u8')) {
             playHLSStream(station.url);
         } else {
+            // 如果存在 video.js 實例,先銷毀
+            if (window.videoPlayer) {
+                window.videoPlayer.dispose();
+                // 重新創建 audio 元素，設置 controls 為 false
+                const audioElement = document.createElement('audio');
+                audioElement.id = 'audioPlayer';
+                audioElement.controls = false; // 關閉控制項顯示
+                document.getElementById('controlCard').querySelector('.card-body').appendChild(audioElement);
+                audioPlayer = audioElement;
+            }
             audioPlayer.src = station.url;
             audioPlayer.play();
         }
@@ -224,25 +234,75 @@ function playStation(station) {
 }
 
 // 播放 HLS 流
-function playHLSStream(url, autoplay) {
-    if (Hls.isSupported()) {
-        var hls = new Hls();
-        hls.loadSource(url);
-        hls.attachMedia(audioPlayer);
-        if (autoplay) {
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                audioPlayer.play().catch(function(error) {
-                    console.log('HLS 串流播放失敗:', error);
-                });
-            });
+function playHLSStream(url) {
+    try {
+        // 確保在銷毀之前檢查播放器是否存在
+        if (window.videoPlayer) {
+            try {
+                window.videoPlayer.dispose();
+            } catch (e) {
+                console.log('播放器銷毀時發生錯誤:', e);
+            }
+            window.videoPlayer = null;
         }
-    } else if (audioPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-        audioPlayer.src = url;
-        if (autoplay) {
-            audioPlayer.play().catch(function(error) {
-                console.log('HLS 串流播放失敗:', error);
-            });
+        
+        // 檢查並獲取控制卡片元素
+        const controlCard = document.getElementById('controlCard');
+        if (!controlCard) {
+            throw new Error('找不到控制卡片元素');
         }
+
+        // 創建新的 video 元素
+        const videoElement = document.createElement('video');
+        videoElement.id = 'audioPlayer';
+        videoElement.className = 'video-js vjs-default-skin vjs-audio vjs-hide-controls';
+        
+        // 找到原始的 audioPlayer 元素並替換
+        const oldPlayer = document.getElementById('audioPlayer');
+        if (oldPlayer && oldPlayer.parentNode) {
+            oldPlayer.parentNode.replaceChild(videoElement, oldPlayer);
+        } else {
+            // 如果找不到舊的播放器，直接將新元素添加到控制卡片中
+            const cardBody = controlCard.querySelector('.card-body');
+            if (cardBody) {
+                cardBody.appendChild(videoElement);
+            } else {
+                throw new Error('找不到控制卡片內容區域');
+            }
+        }
+
+        // 確保元素已經在 DOM 中
+        setTimeout(() => {
+            // 初始化 video.js 播放器
+            window.videoPlayer = videojs('audioPlayer', {
+                controls: false,
+                autoplay: true,
+                preload: 'auto',
+                fluid: false,
+                width: 300,
+                height: 30,
+                sources: [{
+                    src: url,
+                    type: 'application/x-mpegURL'
+                }]
+            });
+
+            // 設置初始音量
+            window.videoPlayer.volume(volumeSlider.value / 100);
+            
+            // 重新綁定音量控制事件
+            volumeSlider.addEventListener('input', function(e) {
+                var volume = e.target.value / 100;
+                if (window.videoPlayer) {
+                    window.videoPlayer.volume(volume);
+                }
+                e.target.style.setProperty('--value', e.target.value + '%');
+                updateRadioState();
+            });
+        }, 0);
+        
+    } catch (error) {
+        console.error('HLS 串流初始化失敗:', error);
     }
 }
 
@@ -294,9 +354,18 @@ function handleStateUpdate(state) {
     // 同步音量
     if (state.volume !== undefined && !isNaN(state.volume)) {
         if (Math.abs(state.volume - audioPlayer.volume) > 0.01) {
-            audioPlayer.volume = state.volume;
+            // 更新滑桿值和樣式
             volumeSlider.value = state.volume * 100;
             volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
+            
+            // 更新播放器音量
+            if (window.videoPlayer) {
+                // 如果是 video.js 播放器
+                window.videoPlayer.volume(state.volume);
+            } else {
+                // 如果是普通 audio 播放器
+                audioPlayer.volume = state.volume;
+            }
         }
     }
 
@@ -356,13 +425,38 @@ function handleStateUpdate(state) {
 
         // 檢查是否需要切換電台
         if (!currentStation || currentStation.id !== state.currentStation.id) {
+            // 停止當前播放的音源
+            if (window.videoPlayer) {
+                try {
+                    window.videoPlayer.pause();
+                    window.videoPlayer.dispose();
+                    window.videoPlayer = null;
+                } catch (e) {
+                    console.log('停止舊播放器時發生錯誤:', e);
+                }
+            }
+            if (audioPlayer) {
+                audioPlayer.pause();
+                audioPlayer.src = '';
+            }
+
             currentStation = state.currentStation;
             currentStationName.textContent = state.currentStation.name;
             
             // 更新音源並播放
             if (state.currentStation.url.endsWith('m3u8')) {
-                playHLSStream(state.currentStation.url, state.isPlaying);
+                playHLSStream(state.currentStation.url);
             } else {
+                // 確保創建新的 audio 元素
+                const audioElement = document.createElement('audio');
+                audioElement.id = 'audioPlayer';
+                audioElement.controls = true;
+                const oldPlayer = document.getElementById('audioPlayer');
+                if (oldPlayer) {
+                    oldPlayer.parentNode.replaceChild(audioElement, oldPlayer);
+                }
+                audioPlayer = audioElement;
+                
                 audioPlayer.src = state.currentStation.url;
                 if (state.isPlaying) {
                     audioPlayer.play().catch(function(error) {
@@ -408,7 +502,7 @@ function handleInitialState(state) {
 
         // 設置音源並自動播放
         if (state.currentStation.url.endsWith('m3u8')) {
-            playHLSStream(state.currentStation.url, true);
+            playHLSStream(state.currentStation.url);
         } else {
             audioPlayer.src = state.currentStation.url;
             audioPlayer.play().catch(function(error) {

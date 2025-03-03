@@ -281,12 +281,28 @@ function playHLSStream(url) {
                 fluid: false,
                 width: 300,
                 height: 30,
+                html5: {
+                    hls: {
+                        enableLowInitialPlaylist: true,
+                        smoothQualityChange: true,
+                        overrideNative: true,
+                        maxMaxBufferLength: 30,
+                        maxBufferSize: 60 * 1000 * 1000, // 60MB 緩衝大小
+                        maxBufferLength: 30, // 30秒緩衝長度
+                        backBufferLength: 30 // 30秒回放緩衝
+                    }
+                },
                 sources: [{
                     src: url,
                     type: 'application/x-mpegURL'
                 }]
             });
 
+            // 設置額外的緩衝參數
+            window.videoPlayer.tech_.hls.bandwidth = 20000000; // 提高預設頻寬估計
+            window.videoPlayer.tech_.hls.segmentCoalescing = true; // 啟用片段合併
+            window.videoPlayer.tech_.hls.blacklistDuration = 300000; // 增加黑名單持續時間
+            
             // 設置初始音量
             window.videoPlayer.volume(volumeSlider.value / 100);
             

@@ -119,7 +119,15 @@ function setupEventListeners() {
     // 音量控制
     volumeSlider.addEventListener('input', function(e) {
         var volume = e.target.value / 100;
-        audioPlayer.volume = volume;
+        if (window.videoPlayer) {
+            window.videoPlayer.volume(volume);
+            // 確保當音量為 0 時完全靜音
+            window.videoPlayer.muted(volume === 0);
+        } else {
+            audioPlayer.volume = volume;
+            // 確保當音量為 0 時完全靜音
+            audioPlayer.muted = volume === 0;
+        }
         // 更新滑桿顏色
         e.target.style.setProperty('--value', e.target.value + '%');
         // 發送音量更新到伺服器
@@ -195,6 +203,21 @@ function playStation(station) {
         }
         // 顯示音量控制卡片
         controlCard.style.display = 'block';
+    }
+
+    // 在切換電台前先停止所有播放源
+    if (window.videoPlayer) {
+        try {
+            window.videoPlayer.pause();
+            window.videoPlayer.dispose();
+            window.videoPlayer = null;
+        } catch (e) {
+            console.log('停止舊播放器時發生錯誤:', e);
+        }
+    }
+    if (audioPlayer) {
+        audioPlayer.pause();
+        audioPlayer.src = '';
     }
 
     currentStation = station;
@@ -311,6 +334,8 @@ function playHLSStream(url) {
                 var volume = e.target.value / 100;
                 if (window.videoPlayer) {
                     window.videoPlayer.volume(volume);
+                    // 確保當音量為 0 時完全靜音
+                    window.videoPlayer.muted(volume === 0);
                 }
                 e.target.style.setProperty('--value', e.target.value + '%');
                 updateRadioState();
@@ -369,25 +394,42 @@ function handleStateUpdate(state) {
     
     // 同步音量
     if (state.volume !== undefined && !isNaN(state.volume)) {
-        if (Math.abs(state.volume - audioPlayer.volume) > 0.01) {
-            // 更新滑桿值和樣式
-            volumeSlider.value = state.volume * 100;
-            volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
-            
-            // 更新播放器音量
-            if (window.videoPlayer) {
-                // 如果是 video.js 播放器
-                window.videoPlayer.volume(state.volume);
-            } else {
-                // 如果是普通 audio 播放器
-                audioPlayer.volume = state.volume;
-            }
+        // 更新滑桿值和樣式
+        volumeSlider.value = state.volume * 100;
+        volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
+        
+        // 更新播放器音量
+        if (window.videoPlayer) {
+            // 如果是 video.js 播放器
+            window.videoPlayer.volume(state.volume);
+            // 確保當音量為 0 時完全靜音
+            window.videoPlayer.muted(state.volume === 0);
+        } else {
+            // 如果是普通 audio 播放器
+            audioPlayer.volume = state.volume;
+            // 確保當音量為 0 時完全靜音
+            audioPlayer.muted = state.volume === 0;
         }
     }
 
     if (state.youtubeState && state.youtubeState.isYoutubeMode) {
         // 強制切換到 YouTube 模式
         isYoutubeMode = true;
+        
+        // 停止所有播放源
+        if (window.videoPlayer) {
+            try {
+                window.videoPlayer.pause();
+                window.videoPlayer.dispose();
+                window.videoPlayer = null;
+            } catch (e) {
+                console.log('停止 HLS 播放器時發生錯誤:', e);
+            }
+        }
+        if (audioPlayer) {
+            audioPlayer.pause();
+            audioPlayer.src = '';
+        }
         
         // 檢查播放清單是否被清空
         if (!state.youtubeState.playlist || state.youtubeState.playlist.length === 0) {
@@ -421,12 +463,6 @@ function handleStateUpdate(state) {
         controlCard.style.display = 'none';
         youtubeSection.style.display = 'block';
         currentStationName.textContent = 'YouTube 播放器';
-        
-        // 停止音頻播放
-        if (audioPlayer) {
-            audioPlayer.pause();
-            audioPlayer.src = '';
-        }
         
         updatePlaylistUI();
         updateNavigationButtons();
@@ -626,6 +662,17 @@ function setupYoutubeEventListeners() {
 // 切換到 YouTube 模式
 function switchToYoutube() {
     isYoutubeMode = true;
+    
+    // 停止所有播放源
+    if (window.videoPlayer) {
+        try {
+            window.videoPlayer.pause();
+            window.videoPlayer.dispose();
+            window.videoPlayer = null;
+        } catch (e) {
+            console.log('停止 HLS 播放器時發生錯誤:', e);
+        }
+    }
     if (audioPlayer) {
         audioPlayer.pause();
         audioPlayer.src = '';

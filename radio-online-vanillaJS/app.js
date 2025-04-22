@@ -309,10 +309,15 @@ function playHLSStream(url) {
                         enableLowInitialPlaylist: true,
                         smoothQualityChange: true,
                         overrideNative: true,
-                        maxMaxBufferLength: 30,
-                        maxBufferSize: 60 * 1000 * 1000, // 60MB 緩衝大小
-                        maxBufferLength: 30, // 30秒緩衝長度
-                        backBufferLength: 30 // 30秒回放緩衝
+                        maxMaxBufferLength: 600,
+                        maxBufferLength: 30,
+                        maxBufferSize: 60 * 1000 * 1000, // 60MB
+                        backBufferLength: 90,
+                        liveSyncDuration: 3,
+                        liveMaxLatencyDuration: 6,
+                        liveDurationInfinity: true,
+                        liveBackBufferLength: 90,
+                        debug: false
                     }
                 },
                 sources: [{
@@ -339,6 +344,27 @@ function playHLSStream(url) {
                 }
                 e.target.style.setProperty('--value', e.target.value + '%');
                 updateRadioState();
+            });
+
+            // 添加錯誤處理
+            window.videoPlayer.on('error', function (error) {
+                console.error('播放器錯誤：', error);
+                // 嘗試重新載入
+                if (window.videoPlayer) {
+                    window.videoPlayer.src({
+                        src: url,
+                        type: 'application/x-mpegURL'
+                    });
+                }
+            });
+
+            // 監控緩衝狀態
+            window.videoPlayer.on('waiting', function () {
+                console.log('緩衝中...');
+            });
+
+            window.videoPlayer.on('canplay', function () {
+                console.log('可以播放');
             });
         }, 0);
         

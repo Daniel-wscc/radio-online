@@ -259,16 +259,12 @@ function playStation(station) {
 // 播放 HLS 流
 function playHLSStream(url) {
     try {
-        // 確保在銷毀之前檢查播放器是否存在
-        if (window.videoPlayer) {
-            try {
-                window.videoPlayer.dispose();
-            } catch (e) {
-                console.log('播放器銷毀時發生錯誤:', e);
-            }
-            window.videoPlayer = null;
+        // 如果存在舊的 hls 實例，先銷毀它
+        if (window.hls) {
+            window.hls.destroy();
+            window.hls = null;
         }
-        
+
         // 檢查並獲取控制卡片元素
         const controlCard = document.getElementById('controlCard');
         if (!controlCard) {
@@ -278,7 +274,9 @@ function playHLSStream(url) {
         // 創建新的 video 元素
         const videoElement = document.createElement('video');
         videoElement.id = 'audioPlayer';
-        videoElement.className = 'video-js vjs-default-skin vjs-audio vjs-hide-controls';
+        videoElement.style.width = '300px';
+        videoElement.style.height = '30px';
+        videoElement.crossOrigin = 'anonymous';
         
         // 找到原始的 audioPlayer 元素並替換
         const oldPlayer = document.getElementById('audioPlayer');
@@ -288,85 +286,79 @@ function playHLSStream(url) {
             // 如果找不到舊的播放器，直接將新元素添加到控制卡片中
             const cardBody = controlCard.querySelector('.card-body');
             if (cardBody) {
-                cardBody.appendChild(videoElement);
+                cardBody.insertBefore(videoElement, cardBody.firstChild);
             } else {
                 throw new Error('找不到控制卡片內容區域');
             }
         }
 
-        // 確保元素已經在 DOM 中
-        setTimeout(() => {
-            // 初始化 video.js 播放器
-            window.videoPlayer = videojs('audioPlayer', {
-                controls: false,
-                autoplay: true,
-                preload: 'auto',
-                fluid: false,
-                width: 300,
-                height: 30,
-                html5: {
-                    hls: {
-                        enableLowInitialPlaylist: true,
-                        smoothQualityChange: true,
-                        overrideNative: true,
-                        maxMaxBufferLength: 600,
-                        maxBufferLength: 30,
-                        maxBufferSize: 60 * 1000 * 1000, // 60MB
-                        backBufferLength: 90,
-                        liveSyncDuration: 3,
-                        liveMaxLatencyDuration: 6,
-                        liveDurationInfinity: true,
-                        liveBackBufferLength: 90,
-                        debug: false
+        // 檢查瀏覽器是否支援 HLS
+        if (Hls.isSupported()) {
+            window.hls = new Hls({
+                maxBufferSize: 60 * 1000 * 1000, // 60MB
+                maxBufferLength: 30,
+                liveSyncDuration: 3,
+                liveMaxLatencyDuration: 6,
+                backBufferLength: 90,
+                enableWorker: true,
+                lowLatencyMode: true,
+                progressive: true,
+                // 其他優化設置
+                maxLoadingDelay: 4,
+                manifestLoadingMaxRetry: 6,
+                manifestLoadingRetryDelay: 500,
+                manifestLoadingMaxRetryTimeout: 64000,
+                levelLoadingMaxRetry: 6,
+                levelLoadingRetryDelay: 500,
+                levelLoadingMaxRetryTimeout: 64000,
+                fragLoadingMaxRetry: 6,
+                fragLoadingRetryDelay: 500,
+                fragLoadingMaxRetryTimeout: 64000
+            });
+
+            // 綁定 HLS 事件
+            window.hls.on(Hls.Events.MEDIA_ATTACHED, function () {
+                console.log('HLS 媒體已附加');
+                window.hls.loadSource(url);
+            });
+
+            window.hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                console.log('HLS 清單已解析');
+                videoElement.play();
+            });
+
+            window.hls.on(Hls.Events.ERROR, function (event, data) {
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.log('致命網路錯誤，嘗試恢復...');
+                            window.hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            console.log('致命媒體錯誤，嘗試恢復...');
+                            window.hls.recoverMediaError();
+                            break;
+                        default:
+                            console.log('無法恢復的錯誤');
+                            window.hls.destroy();
+                            break;
                     }
-                },
-                sources: [{
-                    src: url,
-                    type: 'application/x-mpegURL'
-                }]
-            });
-
-            // 設置額外的緩衝參數
-            window.videoPlayer.tech_.hls.bandwidth = 20000000; // 提高預設頻寬估計
-            window.videoPlayer.tech_.hls.segmentCoalescing = true; // 啟用片段合併
-            window.videoPlayer.tech_.hls.blacklistDuration = 300000; // 增加黑名單持續時間
-            
-            // 設置初始音量
-            window.videoPlayer.volume(volumeSlider.value / 100);
-            
-            // 重新綁定音量控制事件
-            volumeSlider.addEventListener('input', function(e) {
-                var volume = e.target.value / 100;
-                if (window.videoPlayer) {
-                    window.videoPlayer.volume(volume);
-                    // 確保當音量為 0 時完全靜音
-                    window.videoPlayer.muted(volume === 0);
-                }
-                e.target.style.setProperty('--value', e.target.value + '%');
-                updateRadioState();
-            });
-
-            // 添加錯誤處理
-            window.videoPlayer.on('error', function (error) {
-                console.error('播放器錯誤：', error);
-                // 嘗試重新載入
-                if (window.videoPlayer) {
-                    window.videoPlayer.src({
-                        src: url,
-                        type: 'application/x-mpegURL'
-                    });
                 }
             });
 
-            // 監控緩衝狀態
-            window.videoPlayer.on('waiting', function () {
-                console.log('緩衝中...');
+            // 附加媒體
+            window.hls.attachMedia(videoElement);
+        }
+        // 對於原生支援 HLS 的瀏覽器（如 Safari）
+        else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+            videoElement.src = url;
+            videoElement.addEventListener('loadedmetadata', function() {
+                videoElement.play();
             });
+        }
 
-            window.videoPlayer.on('canplay', function () {
-                console.log('可以播放');
-            });
-        }, 0);
+        // 設置初始音量
+        videoElement.volume = volumeSlider.value / 100;
         
     } catch (error) {
         console.error('HLS 串流初始化失敗:', error);
@@ -425,16 +417,10 @@ function handleStateUpdate(state) {
         volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
         
         // 更新播放器音量
-        if (window.videoPlayer) {
-            // 如果是 video.js 播放器
-            window.videoPlayer.volume(state.volume);
-            // 確保當音量為 0 時完全靜音
-            window.videoPlayer.muted(state.volume === 0);
-        } else {
-            // 如果是普通 audio 播放器
-            audioPlayer.volume = state.volume;
-            // 確保當音量為 0 時完全靜音
-            audioPlayer.muted = state.volume === 0;
+        const audioElement = document.getElementById('audioPlayer');
+        if (audioElement) {
+            audioElement.volume = state.volume;
+            audioElement.muted = state.volume === 0;
         }
     }
 
@@ -443,18 +429,13 @@ function handleStateUpdate(state) {
         isYoutubeMode = true;
         
         // 停止所有播放源
-        if (window.videoPlayer) {
-            try {
-                window.videoPlayer.pause();
-                window.videoPlayer.dispose();
-                window.videoPlayer = null;
-            } catch (e) {
-                console.log('停止 HLS 播放器時發生錯誤:', e);
-            }
+        const audioElement = document.getElementById('audioPlayer');
+        if (audioElement) {
+            audioElement.pause();
         }
-        if (audioPlayer) {
-            audioPlayer.pause();
-            audioPlayer.src = '';
+        if (window.hls) {
+            window.hls.destroy();
+            window.hls = null;
         }
         
         // 檢查播放清單是否被清空

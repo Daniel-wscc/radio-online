@@ -6,7 +6,7 @@ COPY index.ts ./
 
 # 安裝所有必要的套件
 RUN npm init -y && \
-    npm install express socket.io cors && \
+    npm install express socket.io cors @socket.io/admin-ui && \
     npm install -g typescript && \
     npm install -D @types/node @types/express @types/socket.io @types/cors
 

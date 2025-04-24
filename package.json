@@ -22,6 +22,7 @@
     "@angular/router": "^19.1.0",
     "@angular/youtube-player": "^19.1.2",
     "@primeng/themes": "^19.0.5",
+    "@socket.io/admin-ui": "^0.5.1",
     "core-js": "^2.6.12",
     "hls.js": "^1.5.20",
     "ngx-socket-io": "^4.8.2",

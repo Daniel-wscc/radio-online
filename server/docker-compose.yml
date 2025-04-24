@@ -6,4 +6,4 @@ services:
       - "1034:1034"
     restart: always
     environment:
-      - NODE_ENV=production 
+      - NODE_ENV=development 

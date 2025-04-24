@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import { instrument } from '@socket.io/admin-ui';
 
 const app = express();
 
@@ -11,7 +12,8 @@ app.use(cors({
     "http://localhost:4200", 
     "http://192.168.0.10:4200", 
     "https://demo.wscc1031.synology.me",
-    "https://radio.wscc1031.synology.me"
+    "https://radio.wscc1031.synology.me",
+    "https://admin.socket.io"  // 添加 Admin UI 的域名
   ],
   credentials: true,
   methods: ["GET", "POST", "OPTIONS"],
@@ -25,7 +27,8 @@ const io = new Server(httpServer, {
       "http://localhost:4200", 
       "http://192.168.0.10:4200", 
       "https://demo.wscc1031.synology.me",
-      "https://radio.wscc1031.synology.me"
+      "https://radio.wscc1031.synology.me",
+      "https://admin.socket.io"  // 添加 Admin UI 的域名
     ],
     methods: ["GET", "POST", "OPTIONS"],
     credentials: true,
@@ -33,6 +36,16 @@ const io = new Server(httpServer, {
   },
   allowEIO3: true,
   transports: ['websocket', 'polling']
+});
+
+// 設定 Socket.IO Admin UI
+instrument(io, {
+  auth: {
+    type: "basic",
+    username: "admin",
+    password: "$2a$12$IuWKSFABnC2T/vFQWYhZwe5J8CeVD9fmGj8kH01jzBNviKGm5Y6.S"
+  },
+  mode: process.env['NODE_ENV'] === 'production' ? 'production' : 'development',
 });
 
 let currentRadioState = {

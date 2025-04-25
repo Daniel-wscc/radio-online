@@ -69,5 +69,48 @@
 
 :host ::ng-deep .dark .chat-panel .p-panel-header * {
     color: #f3f4f6 !important;
+}
+
+.notification-prompt {
+    position: fixed;
+    bottom: 20px;  /* 調整位置避免遮擋聊天室 */
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    z-index: 1000;
+    padding: 12px 24px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.notification-prompt-content {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    justify-content: center;
+    position: relative;  /* 為關閉按鈕定位 */
+}
+
+.notification-prompt button {
+    /* background-color: #4CAF50; */
+    border: none;
+}
+
+.notification-prompt .close-button {
+    padding: 0.5rem !important;
+    width: 2rem !important;
+    height: 2rem !important;
+    color: #ffffff !important;
+}
+
+.notification-prompt .close-button:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 深色模式適配 */
+.dark .notification-prompt {
+    background-color: rgba(31, 41, 55, 0.95);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
 } 
 

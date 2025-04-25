@@ -4,7 +4,9 @@
          [style]="{'position': 'fixed', 'bottom': '20px', 'right': '20px', 'width': '300px', 'z-index': '1000'}"
          header="聊天室">
     <ng-template pTemplate="icons">
-        <span *ngIf="unreadCount > 0" class="p-badge p-badge-danger">{{unreadCount}}</span>
+        @if (unreadCount > 0) {
+            <span class="p-badge p-badge-danger">{{unreadCount}}</span>
+        }
     </ng-template>
     <div class="flex flex-col h-full dark:bg-gray-800 dark:text-white">
         <div class="flex justify-end items-center mb-4">
@@ -48,3 +50,24 @@
         </div>
     </div>
 </p-panel>
+
+<!-- 通知權限提示條 -->
+@if (showNotificationPrompt) {
+    <div class="notification-prompt">
+        <div class="notification-prompt-content">
+            <span>🤗芯禾電台需要你授權才能啟用通知。</span>
+            <button pButton 
+                    type="button" 
+                    label="啟用通知" 
+                    class="p-button-sm" 
+                    (click)="requestNotificationPermission()">
+            </button>
+            <button pButton 
+                    type="button" 
+                    icon="pi pi-times"
+                    class="p-button-text p-button-rounded close-button" 
+                    (click)="dismissNotificationPrompt()">
+            </button>
+        </div>
+    </div>
+}

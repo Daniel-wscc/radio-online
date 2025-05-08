@@ -104,7 +104,7 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
     },
     {
       name: 'Hit FM台北之音廣播',
-      url: 'https://renewed-georgeanne-nekonode-1aa70c0c.koyeb.app/fetch/?url=http://202.39.43.67:1935/live/RA000036/chunklist.m3u8',
+      url: 'https://m3u8-proxy.wscc1031.synology.me/fetch/?url=http://202.39.43.67:1935/live/RA000036/chunklist.m3u8',
       tags: ['music'],
       codec: 'MP3',
       id: 'custom_5'

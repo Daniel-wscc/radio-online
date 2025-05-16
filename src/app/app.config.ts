@@ -3,13 +3,14 @@ import { provideRouter } from '@angular/router';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { providePrimeNG } from 'primeng/config';
 import { SocketIoModule, SocketIoConfig } from 'ngx-socket-io';
+import { environment } from './environments/environment';
 
 import Aura from '@primeng/themes/aura';
 
 import { routes } from './app.routes';
 
 const config: SocketIoConfig = { 
-  url: 'https://radio.wscc1031.synology.me', 
+  url: environment.socketUrl,
   options: {
     transports: ['polling', 'websocket'],
     autoConnect: true,

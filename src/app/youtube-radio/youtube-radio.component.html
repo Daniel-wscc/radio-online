@@ -1,8 +1,8 @@
-<div class="content-container" [class.chat-open]="isChatOpen">
+<div class="content-container w-full h-full flex flex-col gap-4 p-4 bg-gradient-to-br from-blue-50 via-white to-blue-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
   <!-- 播放器區域 -->
   @if(currentVideoId) {
-    <div class="player-section">
-      <div class="youtube-player-container">
+    <div class="player-section flex justify-center mb-2">
+      <div class="youtube-player-container rounded-2xl overflow-hidden shadow-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         <youtube-player
           [videoId]="currentVideoId"
           [width]="videoWidth"
@@ -18,72 +18,67 @@
 
   <!-- 控制項 -->
   @if(currentVideoId) {
-    <div class="controls-container">
-      <div class="flex gap-2 justify-center">
-        <p-button label="上一首" (click)="playPrevious()" [disabled]="currentIndex <= 0"></p-button>
-        <p-button label="下一首" (click)="playNext()" [disabled]="currentIndex >= playlist.length - 1"></p-button>
+    <div class="controls-container flex justify-center mb-2">
+      <div class="flex gap-2">
+        <button class="btn btn-primary btn-sm rounded-full shadow" (click)="playPrevious()" [disabled]="currentIndex <= 0">上一首</button>
+        <button class="btn btn-primary btn-sm rounded-full shadow" (click)="playNext()" [disabled]="currentIndex >= playlist.length - 1">下一首</button>
       </div>
     </div>
   }
 
   <!-- 輸入區域 -->
   <div class="input-section">
-    <p-card [styleClass]="isDarkTheme ? 'dark-theme-card' : ''" class="w-full">
-      <textarea 
-        pInputTextarea 
-        [rows]="5" 
-        class="w-full dark:bg-gray-700 dark:text-white"
-        [(ngModel)]="urlInput"
-        placeholder="請輸入 YouTube 網址（每行一個）"
-      ></textarea>
-      <div class="mt-4 flex gap-2">
-        <p-button label="加入播放清單" (click)="loadPlaylist()"></p-button>
-        <p-button label="清除播放清單" (click)="clearPlaylist()" severity="secondary"></p-button>
+    <div class="card bg-white/90 dark:bg-gray-800/90 shadow-xl rounded-2xl border border-gray-200 dark:border-gray-700 w-full">
+      <div class="card-body p-4">
+        <textarea 
+          rows="5" 
+          class="textarea textarea-bordered w-full dark:bg-gray-700 dark:text-white rounded-xl"
+          [(ngModel)]="urlInput"
+          placeholder="請輸入 YouTube 網址（每行一個）"
+        ></textarea>
+        <div class="mt-4 flex gap-2 justify-end">
+          <button class="btn btn-primary btn-sm rounded shadow" (click)="loadPlaylist()">加入播放清單</button>
+          <button class="btn btn-secondary btn-sm rounded shadow" (click)="clearPlaylist()">清除播放清單</button>
+        </div>
       </div>
-    </p-card>
+    </div>
   </div>
 
   <!-- 播放清單區域 -->
   <div class="playlist-container">
-    <p-card [styleClass]="isDarkTheme ? 'dark-theme-card' : ''" class="w-full">
-      <div class="flex justify-between items-center mb-2">
-        <h3 class="text-lg font-bold dark:text-white">播放清單</h3>
-        <p-button 
-          icon="pi pi-sort-alt" 
-          (click)="shufflePlaylist()"
-          [outlined]="true"
-          [disabled]="playlist.length <= 1"
-          pTooltip="隨機排序"
-        ></p-button>
-      </div>
-      <div class="divide-y divide-gray-200 dark:divide-gray-700" cdkDropList (cdkDropListDropped)="onDrop($event)">
-        @for (video of playlist; track video.id; let i = $index) {
-          <div class="py-2 flex justify-between items-center dark:text-white"
-               [class.bg-blue-50]="i === currentIndex"
-               [class.dark:bg-blue-900]="i === currentIndex"
-               cdkDrag
-               [cdkDragDisabled]="i === currentIndex">
-            <div class="flex items-center gap-2">
-              <i class="pi pi-bars text-gray-400 cursor-move" cdkDragHandle></i>
-              <span>{{ video.title || video.id }}</span>
+    <div class="card bg-white/90 dark:bg-gray-800/90 shadow-xl rounded-2xl border border-gray-200 dark:border-gray-700 w-full">
+      <div class="card-body p-4">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="text-lg font-bold dark:text-white">播放清單</h3>
+          <button class="btn btn-ghost btn-sm rounded-full" (click)="shufflePlaylist()" [disabled]="playlist.length <= 1" title="隨機排序">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+          </button>
+        </div>
+        <div class="divide-y divide-gray-200 dark:divide-gray-700" cdkDropList (cdkDropListDropped)="onDrop($event)">
+          @for (video of playlist; track video.id; let i = $index) {
+            <div class="py-2 flex justify-between items-center dark:text-white transition rounded-xl"
+                 [class.bg-blue-50]="i === currentIndex"
+                 [class.dark:bg-blue-900]="i === currentIndex"
+                 cdkDrag
+                 [cdkDragDisabled]="i === currentIndex">
+              <div class="flex items-center gap-2">
+                <span class="cursor-move" cdkDragHandle>
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                </span>
+                <span class="truncate max-w-[120px]">{{ video.title || video.id }}</span>
+              </div>
+              <div class="flex gap-2">
+                <button class="btn btn-ghost btn-xs rounded-full" (click)="playIndex(i)" [disabled]="i === currentIndex" title="播放">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7-7 7M5 5v14" /></svg>
+                </button>
+                <button class="btn btn-ghost btn-xs rounded-full" (click)="removeFromPlaylist(i)" title="移除">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
             </div>
-            <div class="flex gap-2">
-              <p-button 
-                icon="pi pi-play" 
-                (click)="playIndex(i)"
-                [outlined]="true"
-                [disabled]="i === currentIndex"
-              ></p-button>
-              <p-button 
-                icon="pi pi-trash" 
-                (click)="removeFromPlaylist(i)"
-                [outlined]="true"
-                severity="danger"
-              ></p-button>
-            </div>
-          </div>
-        }
+          }
+        </div>
       </div>
-    </p-card>
+    </div>
   </div>
 </div>

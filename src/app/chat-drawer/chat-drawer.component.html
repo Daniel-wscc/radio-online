@@ -1,73 +1,57 @@
-<p-panel [toggleable]="true" [collapsed]="!visible" 
-         (collapsedChange)="onCollapsedChange($event)"
-         styleClass="chat-panel dark:bg-gray-800"
-         [style]="{'position': 'fixed', 'bottom': '20px', 'right': '20px', 'width': '300px', 'z-index': '1000'}"
-         header="聊天室">
-    <ng-template pTemplate="icons">
-        @if (unreadCount > 0) {
-            <span class="p-badge p-badge-danger">{{unreadCount}}</span>
-        }
-    </ng-template>
-    <div class="flex flex-col h-full dark:bg-gray-800 dark:text-white">
-        <div class="flex justify-end items-center mb-4">
-            <div class="flex gap-2">
-                <button pButton icon="pi pi-user" (click)="setUserName()" pTooltip="設定名稱"></button>
-            </div>
-        </div>
+<!-- 右下角浮動按鈕，未開啟聊天室時顯示 -->
+<button *ngIf="!visible" class="fixed bottom-5 right-5 btn btn-primary btn-circle z-[1001] shadow-lg hover:scale-110 transition-transform duration-200" (click)="onCollapsedChange(true)">
+  <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2v-8a2 2 0 012-2h2M15 3h-6a2 2 0 00-2 2v4a2 2 0 002 2h6a2 2 0 002-2V5a2 2 0 00-2-2z" /></svg>
+</button>
 
-        <div class="flex-1 overflow-y-auto mb-4">
-            @for (msg of messages$ | async; track msg.timestamp) {
-                <div class="mb-2">
-                    <div class="text-sm" [class.text-gray-500]="!msg.isSystem" 
-                         [class.text-blue-500]="msg.isSystem" 
-                         [class.dark:text-gray-400]="!msg.isSystem"
-                         [class.dark:text-blue-400]="msg.isSystem">
-                        {{ msg.userName }}
-                    </div>
-                    <div class="p-2 rounded" 
-                         [class.bg-gray-100]="!msg.isSystem"
-                         [class.bg-blue-50]="msg.isSystem"
-                         [class.dark:bg-gray-700]="!msg.isSystem"
-                         [class.dark:bg-blue-900]="msg.isSystem"
-                         [class.dark:text-white]="true">
-                        {{ msg.message }}
-                    </div>
-                    <div class="text-xs text-gray-400">
-                        {{ msg.timestamp | date:'HH:mm:ss' }}
-                    </div>
-                </div>
-            }
-        </div>
-
-        <div class="flex gap-2">
-            <input type="text" pInputText [(ngModel)]="newMessage" 
-                   (keyup.enter)="sendMessage()" 
-                   placeholder="輸入訊息..." 
-                   class="flex-1 dark:bg-gray-700 dark:text-white dark:border-gray-600">
-            <button pButton icon="pi pi-send" 
-                    (click)="sendMessage()">
-            </button>
-        </div>
+<!-- 聊天室主體，開啟時顯示 -->
+<div *ngIf="visible" class="fixed bottom-5 right-5 w-80 z-[1000]">
+  <div class="bg-white dark:bg-gray-800 shadow-2xl rounded-2xl flex flex-col h-[540px] border border-gray-200 dark:border-gray-700">
+    <!-- Header -->
+    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-500 to-blue-400 dark:from-blue-900 dark:to-blue-700 rounded-t-2xl">
+      <span class="font-bold text-white tracking-wide">聊天室</span>
+      <span *ngIf="unreadCount > 0" class="badge badge-error">{{unreadCount}}</span>
+      <button class="btn btn-xs btn-ghost text-white" (click)="onCollapsedChange(false)">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
     </div>
-</p-panel>
+    <!-- 訊息區 -->
+    <div class="flex-1 overflow-y-auto px-4 py-2 bg-gray-50 dark:bg-gray-900/80 rounded-b-lg">
+      @for (msg of messages$ | async; track msg.timestamp) {
+        <div class="mb-3">
+          <div class="text-xs font-semibold mb-1" [class.text-gray-500]="!msg.isSystem" [class.text-blue-500]="msg.isSystem" [class.dark:text-gray-400]="!msg.isSystem" [class.dark:text-blue-400]="msg.isSystem">
+            {{ msg.userName }}
+          </div>
+          <div class="inline-block px-3 py-2 rounded-xl shadow-sm max-w-[90%]"
+               [class.bg-white]="!msg.isSystem"
+               [class.bg-blue-100]="msg.isSystem"
+               [class.dark:bg-gray-700]="!msg.isSystem"
+               [class.dark:bg-blue-900]="msg.isSystem"
+               [class.dark:text-white]="true">
+            {{ msg.message }}
+          </div>
+          <div class="text-[10px] text-gray-400 mt-1">
+            {{ msg.timestamp | date:'HH:mm:ss' }}
+          </div>
+        </div>
+      }
+    </div>
+    <!-- 輸入區 -->
+    <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-b-2xl flex gap-2">
+      <input type="text" [(ngModel)]="newMessage" (keyup.enter)="sendMessage()" placeholder="輸入訊息..." class="input input-bordered flex-1 dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 focus:ring-blue-400" />
+      <button class="btn btn-primary btn-square" (click)="sendMessage()" title="送出">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+      </button>
+    </div>
+  </div>
+</div>
 
 <!-- 通知權限提示條 -->
 @if (showNotificationPrompt) {
-    <div class="notification-prompt">
-        <div class="notification-prompt-content">
-            <span>🤗芯禾電台需要你授權才能啟用通知。</span>
-            <button pButton 
-                    type="button" 
-                    label="啟用通知" 
-                    class="p-button-sm" 
-                    (click)="requestNotificationPermission()">
-            </button>
-            <button pButton 
-                    type="button" 
-                    icon="pi pi-times"
-                    class="p-button-text p-button-rounded close-button" 
-                    (click)="dismissNotificationPrompt()">
-            </button>
-        </div>
-    </div>
+  <div class="notification-prompt flex items-center gap-3 z-[1100] min-w-[320px] max-w-[90vw] justify-center">
+    <span class="font-medium">🤗 芯禾電台需要你授權才能啟用通知。</span>
+    <button type="button" class="btn btn-success btn-sm font-bold px-4" (click)="requestNotificationPermission()">啟用通知</button>
+    <button type="button" class="btn btn-ghost btn-circle btn-sm" (click)="dismissNotificationPrompt()">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+    </button>
+  </div>
 }

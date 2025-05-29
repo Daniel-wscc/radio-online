@@ -1,116 +1,27 @@
-.chat-panel {
-    margin-bottom: 0 !important;
-}
+/* 僅保留必要的自訂樣式，移除與 daisyUI 衝突或用不到的部分 */
 
-.chat-panel .p-panel-header {
-    background-color: inherit;
-    border: none;
-}
-
-.chat-panel .p-panel-content {
-    border: none;
-    background-color: inherit;
-    height: calc(100vh - 100px) !important; /* 調整為視窗高度減去一些間距 */
-}
-
-.dark .chat-panel .p-panel-header,
-.dark .chat-panel .p-panel-content {
-    background-color: #1f2937 !important;
-    color: white;
-}
-
-.dark .chat-panel .p-panel-header-icon {
-    color: white;
-}
-
-.dark .chat-panel .p-panel-header-icon:hover {
-    background-color: #374151;
-    color: white;
-}
-
-.dark .chat-panel .p-panel-title {
-    color: #f3f4f6 !important;
-}
-
-.p-badge {
-    background-color: #ef4444 !important;
-    color: white !important;
-    font-weight: bold;
-    min-width: 1.5rem;
-    height: 1.5rem;
-    line-height: 1.5rem;
-    border-radius: 9999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin-left: 0.5rem;
-}
-
-.dark .p-badge {
-    background-color: #dc2626 !important;
-    color: white !important;
-}
-
-:host ::ng-deep .dark .chat-panel .p-panel-header {
-    color: #f3f4f6 !important; /* Tailwind's gray-100 */
-}
-
-:host ::ng-deep .dark .chat-panel .p-panel-title {
-    color: #f3f4f6 !important; /* Tailwind's gray-100 */
-}
-
-:host ::ng-deep .dark .chat-panel span.p-panel-title {
-    color: #f3f4f6 !important; /* Tailwind's gray-100 */
-}
-
-:host ::ng-deep .dark .chat-panel #pn_id_1_header {
-    color: #f3f4f6 !important; /* Tailwind's gray-100 */
-}
-
-:host ::ng-deep .dark .chat-panel .p-panel-header * {
-    color: #f3f4f6 !important;
-}
-
+/* 通知權限提示條主題適配 */
 .notification-prompt {
     position: fixed;
-    bottom: 20px;  /* 調整位置避免遮擋聊天室 */
+    bottom: 20px;
     left: 50%;
     transform: translateX(-50%);
-    background-color: rgba(0, 0, 0, 0.8);
-    color: white;
+    /* background-color: #fff;
+    color: #222; */
     z-index: 1000;
     padding: 12px 24px;
     border-radius: 8px;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e5e7eb;
 }
-
-.notification-prompt-content {
-    display: flex;
-    gap: 16px;
-    align-items: center;
-    justify-content: center;
-    position: relative;  /* 為關閉按鈕定位 */
-}
-
-.notification-prompt button {
-    /* background-color: #4CAF50; */
-    border: none;
-}
-
-.notification-prompt .close-button {
-    padding: 0.5rem !important;
-    width: 2rem !important;
-    height: 2rem !important;
-    color: #ffffff !important;
-}
-
-.notification-prompt .close-button:hover {
-    background-color: rgba(255, 255, 255, 0.1) !important;
-}
-
-/* 深色模式適配 */
 .dark .notification-prompt {
-    background-color: rgba(31, 41, 55, 0.95);
+    /* background-color: rgba(31, 41, 55, 0.95); */
+    /* color: #fff; */
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-} 
+    border: 1px solid #374151;
+}
+
+/* 若有特殊自訂 badge 樣式可保留，否則交給 daisyUI 處理 */
+
+/* 其餘樣式交由 daisyUI 處理，移除舊有 panel、input、header 等相關自訂 */
 

@@ -2,14 +2,9 @@ import { Component, OnInit, OnDestroy, ViewChild, ChangeDetectorRef, AfterViewIn
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { YouTubePlayer, YouTubePlayerModule } from '@angular/youtube-player';
-import { TextareaModule } from 'primeng/textarea';
-import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
-import { RadioSyncService, RadioState } from '../services/radio-sync.service';
-import { ThemeService } from '../services/theme.service';
-import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
 import { DragDropModule } from '@angular/cdk/drag-drop';
-import { TooltipModule } from 'primeng/tooltip';
+import { RadioSyncService, RadioState } from '../services/radio-sync.service';
+import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
 import { ChatService } from '../services/chat.service';
 
 @Component({
@@ -20,11 +15,7 @@ import { ChatService } from '../services/chat.service';
     CommonModule,
     FormsModule,
     YouTubePlayerModule,
-    TextareaModule,
-    ButtonModule,
-    CardModule,
-    DragDropModule,
-    TooltipModule
+    DragDropModule
   ],
   standalone: true
 })
@@ -56,7 +47,6 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
 
   constructor(
     private radioSync: RadioSyncService,
-    private themeService: ThemeService,
     private chatService: ChatService,
     private cdr: ChangeDetectorRef
   ) {
@@ -80,14 +70,6 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
           this.cdr.detectChanges();
         });
       }
-    });
-
-    // 訂閱主題變化
-    this.themeService.darkMode$.subscribe(isDark => {
-      setTimeout(() => {
-        this.isDarkTheme = isDark;
-        this.cdr.detectChanges();
-      });
     });
 
     // 監聽聊天室狀態

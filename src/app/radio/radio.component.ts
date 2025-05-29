@@ -1,26 +1,12 @@
 import { Component, OnInit, ElementRef, ViewChild, AfterViewInit, ChangeDetectorRef, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RadioBrowserApi } from 'radio-browser-api';
-// import VConsole from 'vconsole';
 import Hls from 'hls.js';
 import { RadioSyncService, RadioState } from '../services/radio-sync.service';
 import { RouterModule } from '@angular/router';
 import { YouTubePlayerModule } from '@angular/youtube-player';
-import { TextareaModule } from 'primeng/textarea';
 import { YoutubeRadioComponent } from '../youtube-radio/youtube-radio.component';
-import { ThemeService } from '../services/theme.service';
 import { ChatService } from '../services/chat.service';
-
-// PrimeNG 組件
-import { InputTextModule } from 'primeng/inputtext';
-import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
-import { SliderModule } from 'primeng/slider';
-import { DividerModule } from 'primeng/divider';
-import { AccordionModule } from 'primeng/accordion';
-import { SplitterModule } from 'primeng/splitter';
-import { TagModule } from 'primeng/tag';
 
 @Component({
   selector: 'app-radio',
@@ -29,21 +15,11 @@ import { TagModule } from 'primeng/tag';
     CommonModule,
     FormsModule,
     RouterModule,
-    // PrimeNG 模組
-    InputTextModule,
-    ButtonModule,
-    CardModule,
-    SliderModule,
-    DividerModule,
-    AccordionModule,
-    SplitterModule,
-    TagModule,
     YouTubePlayerModule,
-    TextareaModule,
     YoutubeRadioComponent
   ],
   templateUrl: './radio.component.html',
-  styleUrls: ['./radio.component.less']
+  // styleUrls: ['./radio.component.less']
 })
 export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
   @ViewChild('audioPlayer') audioPlayer!: ElementRef<HTMLAudioElement>;
@@ -63,7 +39,6 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
   youtubePlaylist: Array<{ id: string, title?: string }> = [];
   currentVideoId: string | null = null;
   currentYoutubeIndex: number = -1;
-  isDarkTheme = false;
   volume: number = 1;
   onlineUsers: number = 0;
 
@@ -113,10 +88,19 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
 
   private currentPlayPromise: Promise<void> | null = null;
 
+  themeList = [
+    { label: 'Light', value: 'light' },
+    { label: 'Dark', value: 'dark' },
+    { label: 'Cupcake', value: 'cupcake' },
+    { label: 'Emerald', value: 'emerald' },
+    { label: 'Cyberpunk', value: 'cyberpunk' },
+    { label: 'Black', value: 'black' },
+  ];
+  selectedTheme = 'dark';
+
   constructor(
     private cdr: ChangeDetectorRef,
     private radioSync: RadioSyncService,
-    private themeService: ThemeService,
     private chatService: ChatService
   ) {
     // 訂閱 radioState 的變化
@@ -149,12 +133,6 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
       }
     });
 
-    // 訂閱主題變化
-    this.themeService.darkMode$.subscribe(isDark => {
-      this.isDarkTheme = isDark;
-      this.cdr.detectChanges();
-    });
-
     // 訂閱線上人數更新
     this.radioSync.onlineUsers$.subscribe(count => {
       this.onlineUsers = count;
@@ -182,11 +160,6 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
     document.addEventListener('click', () => {
       this.hasUserInteracted = true;
     }, { once: true });
-    
-    // 檢查本地儲存的主題設定
-    const savedTheme = localStorage.getItem('theme');
-    this.isDarkTheme = savedTheme === 'dark';
-    this.applyTheme();
   }
 
   // 簡化初始化電台列表方法
@@ -402,26 +375,21 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
     }
   }
 
-  toggleTheme() {
-    this.themeService.toggleDarkMode();
-  }
-
-  private applyTheme() {
-    if (this.isDarkTheme) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }
-
-  getTagSeverity(tag: string): 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast' | undefined {
+  getTagSeverity(tag: string): 'success' | 'info' | 'warning' | 'error' | 'secondary' | 'primary' | 'accent' | 'neutral' | undefined {
     switch (tag.toLowerCase()) {
       case 'news': return 'info';
       case 'music': return 'success';
-      case 'talk': return 'warn';
-      case 'sport': return 'danger';
+      case 'talk': return 'warning';
+      case 'sport': return 'error';
+      case 'local': return 'secondary';
       default: return 'secondary';
     }
+  }
+
+  changeTheme(event: any) {
+    const theme = event.target ? event.target.value : this.selectedTheme;
+    document.documentElement.setAttribute('data-theme', theme);
+    this.selectedTheme = theme;
   }
 
   // 添加 ngOnDestroy 方法

@@ -7,6 +7,8 @@ import { RouterModule } from '@angular/router';
 import { YouTubePlayerModule } from '@angular/youtube-player';
 import { YoutubeRadioComponent } from '../youtube-radio/youtube-radio.component';
 import { ChatService } from '../services/chat.service';
+import { Subject } from 'rxjs';
+import { debounceTime } from 'rxjs/operators';
 
 @Component({
   selector: 'app-radio',
@@ -21,10 +23,9 @@ import { ChatService } from '../services/chat.service';
   templateUrl: './radio.component.html',
   // styleUrls: ['./radio.component.less']
 })
-export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
+export class RadioComponent implements OnDestroy, AfterViewInit {
   @ViewChild('audioPlayer') audioPlayer!: ElementRef<HTMLAudioElement>;
   private isAudioPlayerReady = false;
-  private hasUserInteracted = false;
   
   // private vConsole = new VConsole();
   public stations: any[] = [];
@@ -53,36 +54,55 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
       name: '飛碟電台 FM92.1 UFO Radio Live Stream',
       url: 'https://stream.rcs.revma.com/em90w4aeewzuv',
       tags: ['local'],
-      codec: 'MP3',
       id: 'custom_1'
     },
     {
       name: '飛揚調頻 FM89.5 Live Stream',
       url: 'https://stream.rcs.revma.com/e0tdah74hv8uv',
       tags: ['music'],
-      codec: 'MP3',
       id: 'custom_2'
     },
     {
       name: '中廣流行網 I like radio FM103.3 Live Stream',
       url: 'https://stream.rcs.revma.com/aw9uqyxy2tzuv',
       tags: ['music'],
-      codec: 'MP3',
       id: 'custom_3'
     },
     {
       name: '亞洲電台 FM92.7 Live Stream',
       url: 'https://stream.rcs.revma.com/xpgtqc74hv8uv',
       tags: ['music'],
-      codec: 'MP3',
       id: 'custom_4'
     },
     {
       name: 'Hit FM台北之音廣播',
       url: 'https://m3u8-proxy.wscc1031.synology.me/fetch/?url=http://202.39.43.67:1935/live/RA000036/chunklist.m3u8',
       tags: ['music'],
-      codec: 'MP3',
       id: 'custom_5'
+    },
+    {
+      name: 'BigBRadio Kpop Channel',
+      url: 'https://antares.dribbcast.com/proxy/kpop?mp=/s',
+      tags: ['music'],
+      id: 'custom_6'
+    },
+    {
+      name: 'BigBRadio Jpop Channel',
+      url: 'https://antares.dribbcast.com/proxy/jpop?mp=/s',
+      tags: ['music'],
+      id: 'custom_7'
+    },
+    {
+      name: 'BigBRadio Cpop Channel',
+      url: 'https://antares.dribbcast.com/proxy/cpop?mp=/s',
+      tags: ['music'],
+      id: 'custom_8'
+    },
+    {
+      name: 'BigBRadio Apop Channel',
+      url: 'https://antares.dribbcast.com/proxy/apop?mp=/s',
+      tags: ['music'],
+      id: 'custom_9'
     }
   ];
 
@@ -97,6 +117,8 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
     { label: 'Black', value: 'black' },
   ];
   selectedTheme = 'dark';
+
+  private volumeChange$ = new Subject<number>();
 
   constructor(
     private cdr: ChangeDetectorRef,
@@ -138,6 +160,16 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
       this.onlineUsers = count;
       this.cdr.detectChanges();
     });
+
+    this.volumeChange$.pipe(
+      debounceTime(300) // 300ms 可依需求調整
+    ).subscribe((vol) => {
+      this.radioSync.updateState({
+        currentStation: this.currentStation,
+        isPlaying: this.isPlaying,
+        volume: vol
+      });
+    });
   }
 
   ngAfterViewInit() {
@@ -156,12 +188,6 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
     this.cdr.detectChanges();
   }
 
-  ngOnInit() {
-    document.addEventListener('click', () => {
-      this.hasUserInteracted = true;
-    }, { once: true });
-  }
-
   // 簡化初始化電台列表方法
   private initializeStations() {
     this.stations = this.customStations;
@@ -172,6 +198,13 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
     const audio = this.audioPlayer.nativeElement;
     let newVolume = Math.min(Math.max(audio.volume + change, 0), 1);
     audio.volume = newVolume;
+    this.volume = newVolume;
+    this.radioSync.updateState({
+      currentStation: this.currentStation,
+      isPlaying: this.isPlaying,
+      volume: this.volume
+    });
+    this.cdr.detectChanges();
   }
 
   playStation(url: string, stationName: string) {
@@ -245,15 +278,12 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
   // 修改音量控制
   onVolumeChange(event: any) {
     if (!this.isYoutubeMode && this.audioPlayer?.nativeElement) {
-      this.volume = event.value / 100;
+      this.volume = Number(event) / 100;
+      if (isNaN(this.volume) || !isFinite(this.volume)) {
+        this.volume = 1;
+      }
       this.audioPlayer.nativeElement.volume = this.volume;
-      
-      // 直接更新狀態，不使用延遲
-      this.radioSync.updateState({
-        currentStation: this.currentStation,
-        isPlaying: this.isPlaying,
-        volume: this.volume
-      });
+      this.volumeChange$.next(this.volume); // 只推送，不直接 update
     }
   }
 
@@ -387,7 +417,7 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   changeTheme(event: any) {
-    const theme = event.target ? event.target.value : this.selectedTheme;
+    const theme = event.currentTarget?.getAttribute('data-value') || this.selectedTheme;
     document.documentElement.setAttribute('data-theme', theme);
     this.selectedTheme = theme;
   }
@@ -399,10 +429,5 @@ export class RadioComponent implements OnInit, OnDestroy, AfterViewInit {
       this.audioPlayer.nativeElement.pause();
       this.audioPlayer.nativeElement.src = '';
     }
-    
-    // 移除事件監聽器
-    window.removeEventListener('click', () => {
-      this.hasUserInteracted = true;
-    });
   }
 }

@@ -57,10 +57,10 @@
         <div class="divide-y divide-gray-200 dark:divide-gray-700" cdkDropList (cdkDropListDropped)="onDrop($event)">
           @for (video of playlist; track video.id; let i = $index) {
             <div class="py-2 flex justify-between items-center dark:text-white transition rounded-xl"
-                 [class.bg-blue-50]="i === currentIndex"
-                 [class.dark:bg-blue-900]="i === currentIndex"
-                 cdkDrag
-                 [cdkDragDisabled]="i === currentIndex">
+                [class.bg-blue-50]="i === currentIndex"
+                [class.dark:bg-blue-900]="i === currentIndex"
+                cdkDrag
+                [cdkDragDisabled]="i === currentIndex">
               <div class="flex items-center gap-2">
                 <span class="cursor-move" cdkDragHandle>
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>

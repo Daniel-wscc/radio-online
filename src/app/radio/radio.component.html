@@ -2,6 +2,41 @@
   <!-- 確保 audio 元素在最上層 -->
   <audio #audioPlayer muted autoplay crossorigin="anonymous"></audio>
   
+  <!-- 主題切換選單，固定在右上角 -->
+  <div class="fixed top-4 right-4 z-50">
+    <div class="dropdown dropdown-end">
+      <div tabindex="0" role="button" class="btn btn-sm btn-ghost">
+        <div class="bg-base-100 group-hover:border-base-content/20 border-base-content/10 grid shrink-0 grid-cols-2 gap-0.5 rounded-md border p-1 transition-colors">
+          <div class="bg-base-content size-1 rounded-full"></div>
+          <div class="bg-primary size-1 rounded-full"></div>
+          <div class="bg-secondary size-1 rounded-full"></div>
+          <div class="bg-accent size-1 rounded-full"></div>
+        </div>
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+      <div class="dropdown-content bg-base-200 text-base-content rounded-box top-px overflow-y-auto border border-white/5 shadow-2xl outline-1 outline-black/5 mt-16">
+        <ul tabindex="0" class="menu w-56">
+          <li class="menu-title text-xs">主題</li>
+          @for (theme of themeList; track theme.value) {
+            <li>
+              <button class="gap-3 px-2" (click)="changeTheme($event)" [attr.data-value]="theme.value">
+                <div attr.data-theme="{{ theme.value }}" class="bg-base-100 grid shrink-0 grid-cols-2 gap-0.5 rounded-md p-1 shadow-sm">
+                  <div class="bg-base-content size-1 rounded-full"></div>
+                  <div class="bg-primary size-1 rounded-full"></div>
+                  <div class="bg-secondary size-1 rounded-full"></div>
+                  <div class="bg-accent size-1 rounded-full"></div>
+                </div>
+                <span>{{ theme.label }}</span>
+              </button>
+            </li>
+          }
+        </ul>
+      </div>
+    </div>
+  </div>
+  
   <!-- 主要內容 -->
   <div class="w-full md:w-1/4 bg-base-200 shadow-xl border-r border-base-300 flex flex-col">
     <!-- 標題和主題切換 -->
@@ -10,46 +45,13 @@
         <h2 class="text-2xl font-extrabold text-base-content tracking-wide drop-shadow">芯禾電台3.0</h2>
         <span class="badge badge-success rounded-full shadow">線上人數 {{ onlineUsers }}</span>
       </div>
-      <div class="flex items-center gap-2">
-        <div class="dropdown dropdown-end">
-          <div tabindex="0" role="button" class="btn btn-sm btn-ghost">
-            <div class="bg-base-100 group-hover:border-base-content/20 border-base-content/10 grid shrink-0 grid-cols-2 gap-0.5 rounded-md border p-1 transition-colors">
-              <div class="bg-base-content size-1 rounded-full"></div>
-              <div class="bg-primary size-1 rounded-full"></div>
-              <div class="bg-secondary size-1 rounded-full"></div>
-              <div class="bg-accent size-1 rounded-full"></div>
-            </div>
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-            </svg>
-          </div>
-          <div class="dropdown-content bg-base-200 text-base-content rounded-box top-px h-[30.5rem] max-h-[calc(100vh-8.6rem)] overflow-y-auto border border-white/5 shadow-2xl outline-1 outline-black/5 mt-16">
-            <ul tabindex="0" class="menu w-56">
-              <li class="menu-title text-xs">主題</li>
-              @for (theme of themeList; track theme.value) {
-                <li>
-                  <button class="gap-3 px-2" (click)="changeTheme($event)" [attr.data-value]="theme.value">
-                    <div attr.data-theme="{{ theme.value }}" class="bg-base-100 grid shrink-0 grid-cols-2 gap-0.5 rounded-md p-1 shadow-sm">
-                      <div class="bg-base-content size-1 rounded-full"></div>
-                      <div class="bg-primary size-1 rounded-full"></div>
-                      <div class="bg-secondary size-1 rounded-full"></div>
-                      <div class="bg-accent size-1 rounded-full"></div>
-                    </div>
-                    <span>{{ theme.label }}</span>
-                  </button>
-                </li>
-              }
-            </ul>
-          </div>
-        </div>
-      </div>
     </div>
     <!-- 電台列表 -->
     <div class="flex-1 overflow-y-auto divide-y divide-base-300 text-base-content bg-base-200">
       <!-- YouTube 播放器選項 -->
       <div class="station p-4 cursor-pointer transition hover:bg-base-300 rounded-lg m-2 shadow-sm border border-transparent hover:border-primary"
-           [class.selected]="isYoutubeMode"
-           (click)="switchToYoutube()">
+          [class.selected]="isYoutubeMode"
+          (click)="switchToYoutube()">
         <div>
           <strong class="text-lg">YouTube 播放器</strong>
         </div>
@@ -60,8 +62,8 @@
       <!-- 現有的電台列表 -->
       @for (station of featuredStations; track station.id) {
         <div class="station p-4 cursor-pointer transition hover:bg-base-300 rounded-lg m-2 shadow-sm border border-transparent hover:border-primary"
-             [class.selected]="currentStation?.name === station.name"
-             (click)="selectStation(station)">
+            [class.selected]="currentStation?.name === station.name"
+            (click)="selectStation(station)">
           <div>
             <strong class="text-lg">{{ station.name }}</strong>
           </div>

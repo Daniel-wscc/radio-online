@@ -4,37 +4,56 @@ var customStations = [
         name: '飛碟電台 FM92.1 UFO Radio Live Stream',
         url: 'https://stream.rcs.revma.com/em90w4aeewzuv',
         tags: ['local'],
-        codec: 'MP3',
         id: 'custom_1'
-      },
-      {
+    },
+    {
         name: '飛揚調頻 FM89.5 Live Stream',
         url: 'https://stream.rcs.revma.com/e0tdah74hv8uv',
         tags: ['music'],
-        codec: 'MP3',
         id: 'custom_2'
-      },
-      {
+    },
+    {
         name: '中廣流行網 I like radio FM103.3 Live Stream',
         url: 'https://stream.rcs.revma.com/aw9uqyxy2tzuv',
         tags: ['music'],
-        codec: 'MP3',
         id: 'custom_3'
-      },
-      {
+    },
+    {
         name: '亞洲電台 FM92.7 Live Stream',
         url: 'https://stream.rcs.revma.com/xpgtqc74hv8uv',
         tags: ['music'],
-        codec: 'MP3',
         id: 'custom_4'
-      },
-      {
+    },
+    {
         name: 'Hit FM台北之音廣播',
         url: 'https://m3u8-proxy.wscc1031.synology.me/fetch/?url=http://202.39.43.67:1935/live/RA000036/chunklist.m3u8',
         tags: ['music'],
-        codec: 'MP3',
         id: 'custom_5'
-      }
+    },
+    {
+        name: 'BigBRadio Kpop Channel',
+        url: 'https://antares.dribbcast.com/proxy/kpop?mp=/s',
+        tags: ['music'],
+        id: 'custom_6'
+    },
+    {
+        name: 'BigBRadio Jpop Channel',
+        url: 'https://antares.dribbcast.com/proxy/jpop?mp=/s',
+        tags: ['music'],
+        id: 'custom_7'
+    },
+    {
+        name: 'BigBRadio Cpop Channel',
+        url: 'https://antares.dribbcast.com/proxy/cpop?mp=/s',
+        tags: ['music'],
+        id: 'custom_8'
+    },
+    {
+        name: 'BigBRadio Apop Channel',
+        url: 'https://antares.dribbcast.com/proxy/apop?mp=/s',
+        tags: ['music'],
+        id: 'custom_9'
+    }
 ];
 
 var currentStation = null;
@@ -42,7 +61,7 @@ var isYoutubeMode = false;
 var youtubePlayer = null;
 var playlist = [];
 var currentVideoIndex = -1;
-var socket = io('https://radio.wscc1031.synology.me');
+var socket = io('https://test.wscc1031.synology.me');
 var isDarkMode = false;
 
 // 添加全域變數追蹤全螢幕狀態
@@ -271,22 +290,23 @@ function playHLSStream(url) {
             throw new Error('找不到控制卡片元素');
         }
 
-        // 創建新的 video 元素
-        const videoElement = document.createElement('video');
-        videoElement.id = 'audioPlayer';
-        videoElement.style.width = '300px';
-        videoElement.style.height = '30px';
-        videoElement.crossOrigin = 'anonymous';
+        // 創建新的 audio 元素
+        const audioElement = document.createElement('audio');
+        audioElement.id = 'audioPlayer';
+        audioElement.style.width = '300px';
+        audioElement.style.height = '30px';
+        audioElement.crossOrigin = 'anonymous';
+        audioElement.controls = false;
         
         // 找到原始的 audioPlayer 元素並替換
         const oldPlayer = document.getElementById('audioPlayer');
         if (oldPlayer && oldPlayer.parentNode) {
-            oldPlayer.parentNode.replaceChild(videoElement, oldPlayer);
+            oldPlayer.parentNode.replaceChild(audioElement, oldPlayer);
         } else {
             // 如果找不到舊的播放器，直接將新元素添加到控制卡片中
             const cardBody = controlCard.querySelector('.card-body');
             if (cardBody) {
-                cardBody.insertBefore(videoElement, cardBody.firstChild);
+                cardBody.insertBefore(audioElement, cardBody.firstChild);
             } else {
                 throw new Error('找不到控制卡片內容區域');
             }
@@ -294,27 +314,7 @@ function playHLSStream(url) {
 
         // 檢查瀏覽器是否支援 HLS
         if (Hls.isSupported()) {
-            window.hls = new Hls({
-                maxBufferSize: 60 * 1000 * 1000, // 60MB
-                maxBufferLength: 30,
-                liveSyncDuration: 3,
-                liveMaxLatencyDuration: 6,
-                backBufferLength: 90,
-                enableWorker: true,
-                lowLatencyMode: true,
-                progressive: true,
-                // 其他優化設置
-                maxLoadingDelay: 4,
-                manifestLoadingMaxRetry: 6,
-                manifestLoadingRetryDelay: 500,
-                manifestLoadingMaxRetryTimeout: 64000,
-                levelLoadingMaxRetry: 6,
-                levelLoadingRetryDelay: 500,
-                levelLoadingMaxRetryTimeout: 64000,
-                fragLoadingMaxRetry: 6,
-                fragLoadingRetryDelay: 500,
-                fragLoadingMaxRetryTimeout: 64000
-            });
+            window.hls = new Hls();
 
             // 綁定 HLS 事件
             window.hls.on(Hls.Events.MEDIA_ATTACHED, function () {
@@ -324,10 +324,11 @@ function playHLSStream(url) {
 
             window.hls.on(Hls.Events.MANIFEST_PARSED, function () {
                 console.log('HLS 清單已解析');
-                videoElement.play();
+                audioElement.play();
             });
 
             window.hls.on(Hls.Events.ERROR, function (event, data) {
+                console.error('HLS error:', data);
                 if (data.fatal) {
                     switch (data.type) {
                         case Hls.ErrorTypes.NETWORK_ERROR:
@@ -347,18 +348,18 @@ function playHLSStream(url) {
             });
 
             // 附加媒體
-            window.hls.attachMedia(videoElement);
+            window.hls.attachMedia(audioElement);
         }
         // 對於原生支援 HLS 的瀏覽器（如 Safari）
-        else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-            videoElement.src = url;
-            videoElement.addEventListener('loadedmetadata', function() {
-                videoElement.play();
+        else if (audioElement.canPlayType('application/vnd.apple.mpegurl')) {
+            audioElement.src = url;
+            audioElement.addEventListener('loadedmetadata', function() {
+                audioElement.play();
             });
         }
 
         // 設置初始音量
-        videoElement.volume = volumeSlider.value / 100;
+        audioElement.volume = volumeSlider.value / 100;
         
     } catch (error) {
         console.error('HLS 串流初始化失敗:', error);
@@ -617,6 +618,21 @@ function loadYouTubeAPI() {
 // YouTube API 準備就緒時的回調
 function onYouTubeIframeAPIReady() {
     console.log('YouTube API Ready');
+    // 若 youtubePlayer 已存在，先銷毀
+    if (youtubePlayer && typeof youtubePlayer.destroy === 'function') {
+        youtubePlayer.destroy();
+        youtubePlayer = null;
+    }
+    // 確保 DOM 存在再初始化
+    var playerDiv = document.getElementById('youtubePlayer');
+    if (!playerDiv) {
+        playerDiv = document.createElement('div');
+        playerDiv.id = 'youtubePlayer';
+        playerDiv.style.width = '100%';
+        playerDiv.style.height = '360px';
+        var youtubeSection = document.getElementById('youtubeSection');
+        if (youtubeSection) youtubeSection.appendChild(playerDiv);
+    }
     youtubePlayer = new YT.Player('youtubePlayer', {
         playerVars: {
             'playsinline': 1,
@@ -684,7 +700,44 @@ function switchToYoutube() {
         audioPlayer.pause();
         audioPlayer.src = '';
     }
+
+    // 若 youtubePlayer 已存在，先銷毀
+    if (youtubePlayer && typeof youtubePlayer.destroy === 'function') {
+        youtubePlayer.destroy();
+        youtubePlayer = null;
+    }
     
+    // 確保 youtubePlayer DOM 存在
+    if (!document.getElementById('youtubePlayer')) {
+        var playerDiv = document.createElement('div');
+        playerDiv.id = 'youtubePlayer';
+        playerDiv.style.width = '100%';
+        playerDiv.style.height = '360px';
+        youtubeSection.appendChild(playerDiv);
+    }
+
+    // 確保 YT API 載入且播放器已初始化
+    function ensureYoutubePlayerReady() {
+        if (window.YT && YT.Player && (!youtubePlayer || typeof youtubePlayer.loadVideoById !== 'function')) {
+            youtubePlayer = new YT.Player('youtubePlayer', {
+                playerVars: {
+                    'playsinline': 1,
+                    'origin': window.location.origin,
+                    'enablejsapi': 1,
+                    'rel': 0
+                },
+                events: {
+                    'onReady': onPlayerReady,
+                    'onStateChange': onPlayerStateChange
+                }
+            });
+        } else if (!window.YT || !YT.Player) {
+            // 若 API 尚未載入，稍後重試
+            setTimeout(ensureYoutubePlayerReady, 300);
+        }
+    }
+    ensureYoutubePlayerReady();
+
     // 隱藏音量控制卡片
     controlCard.style.display = 'none';
     youtubeSection.style.display = 'block';

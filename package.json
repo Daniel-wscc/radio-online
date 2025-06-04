@@ -3,10 +3,10 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve --host 0.0.0.0",
-    "build": "ng build",
-    "watch": "ng build --watch --configuration development",
-    "test": "ng test",
+    "start": "nx serve --host 0.0.0.0",
+    "build": "nx build",
+    "watch": "nx build --watch --configuration development",
+    "test": "nx test",
     "start-server": "node --loader ts-node/esm server/index.ts",
     "start:all": "concurrently \"npm run start\" \"npm run start-server\""
   },
@@ -35,9 +35,14 @@
     "zone.js": "~0.14.10"
   },
   "devDependencies": {
+    "@angular-devkit/build-angular": "^18.0.1",
+    "@angular-devkit/core": "^18.0.1",
+    "@angular-devkit/schematics": "^18.0.1",
     "@angular/cli": "^18.0.1",
     "@angular/compiler-cli": "^18.0.1",
-    "@angular-devkit/build-angular": "^18.0.1",
+    "@nx/angular": "21.1.2",
+    "@nx/workspace": "21.1.2",
+    "@schematics/angular": "^18.0.1",
     "@tailwindcss/postcss": "^4.1.7",
     "@types/jasmine": "~5.1.0",
     "@types/node": "^22.12.0",
@@ -46,6 +51,7 @@
     "concurrently": "^9.1.2",
     "jasmine-core": "~5.5.0",
     "nodemon": "^3.1.9",
+    "nx": "21.1.2",
     "postcss": "^8.5.3",
     "ts-node": "^10.9.2",
     "typescript": "~5.5.0"

@@ -1,0 +1,115 @@
+{
+  "$schema": "node_modules/nx/schemas/project-schema.json",
+  "name": "radio-online",
+  "projectType": "application",
+  "generators": {
+    "@schematics/angular:component": {
+      "style": "css"
+    }
+  },
+  "sourceRoot": "src",
+  "prefix": "app",
+  "targets": {
+    "build": {
+      "executor": "@angular-devkit/build-angular:application",
+      "options": {
+        "outputPath": "dist/radio-online",
+        "index": "src/index.html",
+        "browser": "src/main.ts",
+        "polyfills": [
+          "src/polyfills.ts"
+        ],
+        "tsConfig": "tsconfig.app.json",
+        "inlineStyleLanguage": "css",
+        "assets": [
+          {
+            "glob": "**/*",
+            "input": "public"
+          }
+        ],
+        "styles": [
+          "src/styles.css"
+        ],
+        "scripts": [],
+        "stylePreprocessorOptions": {
+          "includePaths": [
+            "node_modules"
+          ]
+        },
+        "baseHref": "/radio-online/"
+      },
+      "configurations": {
+        "production": {
+          "optimization": {
+            "scripts": false,
+            "styles": true
+          },
+          "sourceMap": false,
+          "namedChunks": false,
+          "aot": true,
+          "extractLicenses": true,
+          "outputHashing": "all",
+          "budgets": [
+            {
+              "type": "initial",
+              "maximumWarning": "2mb",
+              "maximumError": "5mb"
+            }
+          ],
+          "outputPath": "dist/radio-online",
+          "baseHref": "/radio-online/"
+        },
+        "development": {
+          "optimization": false,
+          "extractLicenses": false,
+          "sourceMap": true,
+          "fileReplacements": [
+            {
+              "replace": "src/environments/environment.ts",
+              "with": "src/environments/environment.development.ts"
+            }
+          ],
+          "outputPath": "dist/radio-online-test",
+          "baseHref": "/radio-online-test/"
+        }
+      },
+      "defaultConfiguration": "production"
+    },
+    "serve": {
+      "executor": "@angular-devkit/build-angular:dev-server",
+      "configurations": {
+        "production": {
+          "buildTarget": "radio-online:build:production"
+        },
+        "development": {
+          "buildTarget": "radio-online:build:development"
+        }
+      },
+      "defaultConfiguration": "development"
+    },
+    "extract-i18n": {
+      "executor": "@angular-devkit/build-angular:extract-i18n"
+    },
+    "test": {
+      "executor": "@angular-devkit/build-angular:karma",
+      "options": {
+        "polyfills": [
+          "zone.js",
+          "zone.js/testing"
+        ],
+        "tsConfig": "tsconfig.spec.json",
+        "inlineStyleLanguage": "css",
+        "assets": [
+          {
+            "glob": "**/*",
+            "input": "public"
+          }
+        ],
+        "styles": [
+          "src/styles.css"
+        ],
+        "scripts": []
+      }
+    }
+  }
+}

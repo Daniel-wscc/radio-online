@@ -117,12 +117,12 @@ function loadStations() {
 
 // 創建電台元素
 function createStationElement(station) {
-    return '<div class="list-group-item station-item" data-station-id="' + station.id + '">' +
-           '<div class="station-name">' + station.name + '</div>' +
-           '<div class="station-tags">' +
-           createTagsHtml(station.tags) +
-           '</div>' +
-           '</div>';
+    return  '<div class="list-group-item station-item" data-station-id="' + station.id + '">' +
+            '<div class="station-name">' + station.name + '</div>' +
+            '<div class="station-tags">' +
+            createTagsHtml(station.tags) +
+            '</div>' +
+            '</div>';
 }
 
 // 創建標籤 HTML
@@ -267,6 +267,10 @@ function playStation(station) {
                 audioPlayer = audioElement;
             }
             audioPlayer.src = station.url;
+            // 設置音量
+            const currentVolume = volumeSlider.value / 100;
+            audioPlayer.volume = currentVolume;
+            audioPlayer.muted = currentVolume === 0;
             audioPlayer.play();
         }
         updateRadioState();
@@ -311,6 +315,11 @@ function playHLSStream(url) {
                 throw new Error('找不到控制卡片內容區域');
             }
         }
+
+        // 設置初始音量
+        const currentVolume = volumeSlider.value / 100;
+        audioElement.volume = currentVolume;
+        audioElement.muted = currentVolume === 0;
 
         // 檢查瀏覽器是否支援 HLS
         if (Hls.isSupported()) {
@@ -357,9 +366,6 @@ function playHLSStream(url) {
                 audioElement.play();
             });
         }
-
-        // 設置初始音量
-        audioElement.volume = volumeSlider.value / 100;
         
     } catch (error) {
         console.error('HLS 串流初始化失敗:', error);
@@ -418,10 +424,15 @@ function handleStateUpdate(state) {
         volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
         
         // 更新播放器音量
-        const audioElement = document.getElementById('audioPlayer');
-        if (audioElement) {
-            audioElement.volume = state.volume;
-            audioElement.muted = state.volume === 0;
+        if (window.videoPlayer) {
+            window.videoPlayer.volume(state.volume);
+            window.videoPlayer.muted(state.volume === 0);
+        } else {
+            const audioElement = document.getElementById('audioPlayer');
+            if (audioElement) {
+                audioElement.volume = state.volume;
+                audioElement.muted = state.volume === 0;
+            }
         }
     }
 
@@ -485,6 +496,11 @@ function handleStateUpdate(state) {
 
         // 檢查是否需要切換電台
         if (!currentStation || currentStation.id !== state.currentStation.id) {
+            // 先同步音量滑桿
+            if (state.volume !== undefined && !isNaN(state.volume)) {
+                volumeSlider.value = state.volume * 100;
+                volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
+            }
             // 停止當前播放的音源
             if (window.videoPlayer) {
                 try {
@@ -518,6 +534,10 @@ function handleStateUpdate(state) {
                 audioPlayer = audioElement;
                 
                 audioPlayer.src = state.currentStation.url;
+                // 這裡用 volumeSlider.value 設定音量
+                const currentVolume = volumeSlider.value / 100;
+                audioPlayer.volume = currentVolume;
+                audioPlayer.muted = currentVolume === 0;
                 if (state.isPlaying) {
                     audioPlayer.play().catch(function(error) {
                         console.log('遠端切換電台播放失敗:', error);
@@ -653,6 +673,8 @@ function onPlayerReady(event) {
     // 如果有待播放的視頻，立即播放
     if (currentVideoIndex !== -1 && playlist[currentVideoIndex]) {
         event.target.loadVideoById(playlist[currentVideoIndex].id);
+    } else if (playlist.length > 0) {
+        playYoutubeIndex(0);
     }
 }
 
@@ -662,9 +684,9 @@ function setupYoutubeEventListeners() {
     var youtubeBtn = document.createElement('div');
     youtubeBtn.className = 'list-group-item station-item';
     youtubeBtn.innerHTML = '<div class="station-name">YouTube 播放器</div>' +
-                          '<div class="station-tags">' +
-                          '<span class="badge bg-danger me-1">YouTube</span>' +
-                          '</div>';
+                            '<div class="station-tags">' +
+                            '<span class="badge bg-danger me-1">YouTube</span>' +
+                            '</div>';
     stationList.insertBefore(youtubeBtn, stationList.firstChild);
 
     youtubeBtn.addEventListener('click', function() {
@@ -750,9 +772,8 @@ function switchToYoutube() {
     });
     allStations[0].classList.add('active');
 
-    // 如果有正在播放的視頻，確保它可見
-    if (currentVideoIndex !== -1 && youtubePlayer && youtubePlayer.loadVideoById) {
-        youtubePlayer.loadVideoById(playlist[currentVideoIndex].id);
+    if (playlist.length > 0 && currentVideoIndex === -1) {
+        playYoutubeIndex(0);
     }
 
     updatePlaylistUI();
@@ -874,9 +895,9 @@ function onPlayerStateChange(event) {
     if (event.data === YT.PlayerState.ENDED) {
         // 記錄當前的全螢幕狀態
         wasFullscreen = !!(document.fullscreenElement || 
-                          document.webkitFullscreenElement || 
-                          document.mozFullScreenElement || 
-                          document.msFullscreenElement);
+                            document.webkitFullscreenElement || 
+                            document.mozFullScreenElement || 
+                            document.msFullscreenElement);
         
         if (currentVideoIndex < playlist.length - 1) {
             playYoutubeIndex(currentVideoIndex + 1);
@@ -941,9 +962,9 @@ function updateNavigationButtons() {
 // 處理全螢幕狀態變更
 function handleFullscreenChange() {
     wasFullscreen = !!(document.fullscreenElement || 
-                      document.webkitFullscreenElement || 
-                      document.mozFullScreenElement || 
-                      document.msFullscreenElement);
+                        document.webkitFullscreenElement || 
+                        document.mozFullScreenElement || 
+                        document.msFullscreenElement);
 }
 
 // 在文檔加載完成後初始化

@@ -19,7 +19,7 @@ import { ChatService } from '../services/chat.service';
   ],
   standalone: true
 })
-export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
+export class YoutubeRadioComponent implements OnInit, AfterViewInit {
   @ViewChild('youtubePlayer', { static: false }) youtubePlayerContainer!: ElementRef;
   @ViewChild(YouTubePlayer) youtubePlayer!: YouTubePlayer;
 
@@ -77,6 +77,25 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
       this.isChatOpen = visible;
       this.cdr.detectChanges();
     });
+
+    // 監聽從伺服器載入的播放清單
+    this.radioSync.onPlaylistLoaded().subscribe(data => {
+      if (Array.isArray(data)) {
+        // 將從伺服器載入的播放清單轉換為正確的格式
+        this.playlist = data.map(item => ({
+          id: item.videoId,
+          title: item.title || item.videoId
+        }));
+        
+        // 如果目前沒有播放任何影片且播放清單不為空，開始播放第一首
+        if (this.currentIndex === -1 && this.playlist.length > 0) {
+          this.playIndex(0);
+        }
+        
+        this.syncYoutubeState();
+        this.cdr.detectChanges();
+      }
+    });
   }
 
   ngOnInit() {
@@ -84,11 +103,9 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
     const tag = document.createElement('script');
     tag.src = 'https://www.youtube.com/iframe_api';
     document.body.appendChild(tag);
-  }
-
-  ngOnDestroy() {
-    // 儲存播放清單到 localStorage
-    localStorage.setItem('youtube-playlist', JSON.stringify(this.playlist));
+    
+    // 當切換到YouTube模式時，從伺服器載入播放清單
+    this.radioSync.loadPlaylist();
   }
 
   ngAfterViewInit(): void {
@@ -233,7 +250,10 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   private syncYoutubeState() {
-    this.radioSync.updateState({
+    this.radioSync.addPlaylist(this.playlist);
+    
+    // 更新狀態並設置為YouTube模式
+    const newState = {
       isPlaying: true,
       volume: 1,
       youtubeState: {
@@ -242,7 +262,14 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
         currentIndex: this.currentIndex,
         currentVideoId: this.currentVideoId
       }
-    });
+    };
+    
+    this.radioSync.updateState(newState);
+    
+    // 如果是首次切換到YouTube模式，從伺服器載入播放清單
+    if (this.playlist.length === 0) {
+      this.radioSync.loadPlaylist();
+    }
   }
 
   onPlayerReady(event: YT.PlayerEvent) {
@@ -328,4 +355,4 @@ export class YoutubeRadioComponent implements OnInit, OnDestroy, AfterViewInit {
     
     this.syncYoutubeState();
   }
-} 
+}

@@ -7,8 +7,10 @@
     "build": "nx build",
     "watch": "nx build --watch --configuration development",
     "test": "nx test",
-    "start-server": "node --loader ts-node/esm server/index.ts",
-    "start:all": "concurrently \"npm run start\" \"npm run start-server\""
+    "start-server": "node dist/apps/radio-online-server/index.js",
+    "start:all": "concurrently \"npm run start\" \"npm run start-server\"",
+    "build-server": "tsc -p apps/radio-online-server/tsconfig.json",
+    "dev-server": "npm run build-server -- --watch & npm run start-server"
   },
   "private": true,
   "dependencies": {
@@ -23,6 +25,7 @@
     "@angular/router": "^18.0.0",
     "@angular/youtube-player": "^18.0.0",
     "@socket.io/admin-ui": "^0.5.1",
+    "better-sqlite3": "^11.10.0",
     "core-js": "^2.6.12",
     "daisyui": "^5.0.37",
     "hls.js": "^1.5.20",

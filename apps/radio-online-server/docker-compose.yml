@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  radio-online-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "1034:1034"
+    restart: always
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - ./data:/app/data

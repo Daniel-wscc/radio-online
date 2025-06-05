@@ -1,0 +1,28 @@
+{
+  "name": "radio-online-server",
+  "root": "apps/radio-online-server",
+  "sourceRoot": "apps/radio-online-server",
+  "projectType": "application",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "options": {
+        "outputPath": "dist/apps/radio-online-server",
+        "main": "apps/radio-online-server/index.ts",
+        "tsConfig": "apps/radio-online-server/tsconfig.json",
+        "assets": [
+          "apps/radio-online-server/docker-compose.yml",
+          "apps/radio-online-server/Dockerfile"
+        ]
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "options": {
+        "buildTarget": "radio-online-server:build",
+        "port": 1034
+      }
+    }
+  },
+  "tags": []
+} 

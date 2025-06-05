@@ -3,11 +3,15 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { instrument } from '@socket.io/admin-ui';
+import Database from 'better-sqlite3';
+
+console.log('=== 正在啟動 radio-online-server ===');
 
 const app = express();
 
 // 加入 Express CORS 中間件
 app.use(cors({
+  // origin: "http://localhost:4200",
   origin: [
     "http://localhost:4200", 
     "http://192.168.0.10:4200", 
@@ -23,6 +27,7 @@ app.use(cors({
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
+    // origin: "http://localhost:4200",
     origin: [
       "http://localhost:4200", 
       "http://192.168.0.10:4200", 
@@ -68,6 +73,15 @@ interface ChatMessage {
   timestamp: number;
 }
 
+// 初始化 SQLite 資料庫
+const db = new Database('/app/data/radio.db');
+db.exec(`CREATE TABLE IF NOT EXISTS playlist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  videoId TEXT NOT NULL,
+  title TEXT,
+  addedAt INTEGER
+)`);
+
 io.on('connection', (socket) => {
   // 更新線上人數
   onlineUsers++;
@@ -88,6 +102,41 @@ io.on('connection', (socket) => {
   // 處理聊天訊息
   socket.on('chatMessage', (message: ChatMessage) => {
     io.emit('newChatMessage', message);
+  });
+
+  // 新增：接收 client 傳來的播放清單並寫入 sqlite
+  socket.on('addPlaylist', (playlist) => {
+    console.log('收到 addPlaylist:', JSON.stringify(playlist), Array.isArray(playlist), Array.isArray(playlist[0]));
+    // 如果 playlist 其實是 [ [ {...}, {...} ] ]，要解開
+    if (Array.isArray(playlist) && Array.isArray(playlist[0])) {
+      playlist = playlist[0];
+    }
+    if (Array.isArray(playlist)) {
+      const insert = db.prepare('INSERT INTO playlist (videoId, title, addedAt) VALUES (?, ?, ?)');
+      const now = Date.now();
+      for (const item of playlist) {
+        insert.run(item.id, item.title || '', now);
+      }
+      socket.emit('playlistAdded', { success: true });
+      console.log('已寫入 playlist:', playlist);
+    } else {
+      socket.emit('playlistAdded', { success: false, error: '格式錯誤' });
+      console.log('收到不正確的 playlist 資料:', playlist);
+    }
+  });
+
+  // 新增：接收 client 載入 playlist 的請求
+  socket.on('loadPlaylist', () => {
+    console.log('收到 loadPlaylist 請求');
+    try {
+      const select = db.prepare('SELECT videoId, title FROM playlist ORDER BY addedAt ASC');
+      const playlist = select.all();
+      socket.emit('playlistLoaded', playlist);
+      console.log('已從資料庫載入 playlist 並發送:', playlist);
+    } catch (error) {
+      console.error('從資料庫載入 playlist 時發生錯誤:', error);
+      socket.emit('playlistLoaded', { error: '無法載入播放清單' });
+    }
   });
 
   socket.on('disconnect', () => {

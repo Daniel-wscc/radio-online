@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, Observable } from 'rxjs';
 import { Socket } from 'ngx-socket-io';
 
 export interface RadioState {
@@ -51,4 +51,19 @@ export class RadioSyncService {
   updateState(state: RadioState) {
     this.socket.emit('updateRadioState', state);
   }
-} 
+
+  // 新增播放清單
+  addPlaylist(playlist: Array<{ id: string, title?: string }>) {
+    this.socket.emit('addPlaylist', playlist);
+  }
+
+  // 從伺服器載入播放清單
+  loadPlaylist() {
+    this.socket.emit('loadPlaylist');
+  }
+
+  // 監聽從伺服器載入的播放清單
+  onPlaylistLoaded(): Observable<any> {
+    return this.socket.fromEvent<any>('playlistLoaded');
+  }
+}

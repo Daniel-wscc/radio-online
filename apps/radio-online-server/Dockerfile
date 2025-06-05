@@ -1,14 +1,17 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
 COPY index.ts ./
+COPY docker-compose.yml ./
+COPY Dockerfile ./
 
 # 安裝所有必要的套件
 RUN npm init -y && \
-    npm install express socket.io cors @socket.io/admin-ui && \
+    npm install --save express socket.io cors @socket.io/admin-ui better-sqlite3 && \
     npm install -g typescript && \
-    npm install -D @types/node @types/express @types/socket.io @types/cors
+    npm install --save-dev @types/node @types/express @types/socket.io @types/cors ts-node && \
+    npm install -g nodemon concurrently
 
 # 建立 tsconfig.json
 RUN echo '{\
@@ -30,4 +33,4 @@ RUN tsc
 
 EXPOSE 1034
 
-CMD ["node", "index.js"] 
+CMD ["/bin/sh", "-c", "tsc -p tsconfig.json --watch & nodemon index.js"] 

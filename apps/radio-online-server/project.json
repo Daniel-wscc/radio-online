@@ -17,10 +17,15 @@
       }
     },
     "serve": {
-      "executor": "@nx/js:node",
+      "executor": "nx:run-commands",
       "options": {
-        "buildTarget": "radio-online-server:build",
-        "port": 1034
+        "cwd": "apps/radio-online-server",
+        "commands": [
+          "docker compose down",
+          "docker compose build --no-cache",
+          "docker compose up -d"
+        ],
+        "parallel": false
       }
     }
   },

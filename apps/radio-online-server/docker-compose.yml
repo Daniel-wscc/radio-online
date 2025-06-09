@@ -11,3 +11,4 @@ services:
       - NODE_ENV=development
     volumes:
       - ./data:/app/data
+    user: "node"

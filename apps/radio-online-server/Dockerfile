@@ -6,6 +6,10 @@ COPY index.ts ./
 COPY docker-compose.yml ./
 COPY Dockerfile ./
 
+# 建立資料目錄並設定權限
+RUN mkdir -p /app/data && \
+    chown -R node:node /app
+
 # 安裝所有必要的套件
 RUN npm init -y && \
     npm install --save express socket.io cors @socket.io/admin-ui better-sqlite3 && \
@@ -30,6 +34,9 @@ RUN echo '{\
 
 # 編譯 TypeScript
 RUN tsc
+
+# 設定使用者為 node
+USER node
 
 EXPOSE 1034
 

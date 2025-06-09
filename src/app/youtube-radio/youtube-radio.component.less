@@ -7,75 +7,63 @@
   }
 
 :host {
-    display: block;
-    height: 100%;
-    overflow-y: auto;
-  }
-  
-  .youtube-player-container {
-    width: 90%;
-    max-width: 1000px;
-    margin: 0 auto;
-    aspect-ratio: 16/9;
-    position: relative;
-    background: #000;
-    
-    @media (max-width: 640px) {
-      width: 100%;
-    }
-  }
-  
-  ::ng-deep {
-    .dark-theme-card {
-      background-color: var(--card-bg) !important;
-      
-      .p-card-content {
-        color: var(--text-color);
-      }
-    }
-  
-    .p-card {
-      height: 100%;
-      
-      .p-card-body {
-        height: 100%;
-      }
-    }
-  
-    .p-inputtextarea {
-      width: 100%;
-    }
+  display: block;
+  height: 100%;
+  overflow-y: auto;
+  background: hsl(var(--b2));
+  color: hsl(var(--bc));
+}
 
-    .youtube-player-container {
-      youtube-player {
-        width: 100% !important;
-        height: 100% !important;
-        
-        iframe {
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100% !important;
-          height: 100% !important;
-        }
-      }
+// YouTube 播放器容器 - 根據模式調整大小和位置
+.youtube-player-container {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &.mini-mode {
+    // 迷你模式：定位到底部播放條的縮圖位置
+    position: fixed !important;
+    bottom: 12px !important;
+    left: calc(25% + 16px) !important; // sidebar 寬度 + padding
+    width: 48px !important;
+    height: 48px !important;
+    top: auto !important; // 覆蓋 JavaScript 設定的 top
+    z-index: 1001 !important;
+    border-radius: 6px !important;
+    overflow: hidden !important;
+    box-shadow: 0 2px 8px hsl(var(--bc) / 0.15) !important;
+    background: transparent !important; // 迷你模式不需要黑色背景
+
+    // 手機版時調整位置
+    @media (max-width: 768px) {
+      left: 16px !important;
     }
   }
-  
-  // RWD 調整
-  @media (max-width: 640px) {
-    // :host {
-    //   height: auto;
-    // }
-  
-    .p-card {
-      margin: 0 !important;
-    }
-  
-    .youtube-player-container {
-      padding-top: 75%; // 在小螢幕上使用 4:3 比例
+
+  &.expanded-mode {
+    // 展開模式：位置由 JavaScript 動態設定
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px hsl(var(--bc) / 0.2);
+    background: #000;
+
+    @media (max-width: 768px) {
+      border-radius: 8px;
     }
   }
+
+  youtube-player {
+    width: 100% !important;
+    height: 100% !important;
+
+    iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100% !important;
+      height: 100% !important;
+      border-radius: inherit;
+    }
+  }
+}
 
 .content-container {
   width: 100%;
@@ -84,14 +72,18 @@
   transition: all 0.3s ease;
   display: flex;
   flex-direction: column;
-  align-items: center; // 確保內容置中
-  
+  align-items: center;
+
+  &.has-player {
+    padding-bottom: 80px; // 為底部播放器留出空間
+  }
+
   // 當聊天室開啟時，為大螢幕添加右側間距
   @media (min-width: 1024px) {
     &.chat-open {
       padding-right: 320px; // 300px (聊天室寬度) + 20px (間距)
       align-items: flex-end; // 靠右對齊
-      
+
       // 添加內部容器來控制實際內容的位置
       > * {
         width: calc(100% - 160px); // 留出一些空間，避免內容太靠右
@@ -99,7 +91,7 @@
       }
     }
   }
-  
+
   @media (max-width: 640px) {
     overflow-y: auto;
     height: auto;
@@ -107,231 +99,391 @@
   }
 }
 
+.main-content {
+  width: 100%;
+  max-width: 1000px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: 1;
+}
+
+.playlist-section {
+  width: 100%;
+}
+
 .input-section {
   width: 100%;
   flex-shrink: 0;
 }
 
-.player-section {
-  width: 100%;
-  padding: 1rem;
-}
+// 底部播放控制欄
+.player-bar {
+  position: fixed;
+  bottom: 0;
+  left: 25%; // 避開左側 sidebar (25% 寬度)
+  width: 75%; // 只佔右側區域
+  background: hsl(var(--b1) / 0.95);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 -2px 20px hsl(var(--bc) / 0.1);
+  z-index: 999;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-top: 1px solid hsl(var(--bc) / 0.1);
 
-.h-full {
-  height: auto;
-  overflow-y: auto;
-}
+  &.expanded {
+    height: 100vh;
+    background: hsl(var(--b1) / 0.98);
+    overflow-y: auto;
+  }
 
-.w-full {
-  width: 100%;
-}
-
-// 調整播放器和控制項的容器
-.p-4 {
-  padding: 0.5rem;
-}
-
-// 確保按鈕在小螢幕上也可見
-.mt-4 {
-  margin-top: 0.5rem;
-}
-
-// 播放清單區域的樣式
-.divide-y {
-  max-height: calc(100vh - 500px);
-  overflow-y: auto;
-  
+  // 手機版時佔滿全寬
   @media (max-width: 768px) {
-    max-height: none;
+    left: 0;
+    width: 100%;
   }
 }
 
-.overflow-y-auto {
-  overflow-y: auto !important;
+// 迷你播放器 (收起狀態)
+.mini-player {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  height: 72px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+
+  &:hover {
+    background: hsl(var(--bc) / 0.05);
+  }
+
+  &-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  &-thumbnail {
+    width: 48px;
+    height: 48px;
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px hsl(var(--bc) / 0.15);
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  }
+
+  &-details {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &-title {
+    font-weight: 500;
+    font-size: 14px;
+    color: hsl(var(--bc));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+  }
+
+  &-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
 }
 
-// 播放清單容器
+// 展開的播放器
+.expanded-player {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+
+  &-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid hsl(var(--bc) / 0.1);
+    background: hsl(var(--b1) / 0.8);
+    backdrop-filter: blur(10px);
+  }
+
+  &-title {
+    font-weight: 600;
+    font-size: 18px;
+    color: hsl(var(--bc));
+    text-align: center;
+    flex: 1;
+  }
+
+  &-content {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    padding: 20px;
+    overflow-y: auto;
+    gap: 20px;
+
+    // 手機版時改為垂直排列
+    @media (max-width: 768px) {
+      flex-direction: column;
+    }
+  }
+
+  &-left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0; // 防止 flex 項目溢出
+  }
+
+  &-right {
+    flex: 0 0 400px; // 固定寬度 400px
+    display: flex;
+    flex-direction: column;
+
+    // 手機版時取消固定寬度
+    @media (max-width: 768px) {
+      flex: 1;
+    }
+  }
+
+  &-controls {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 16px;
+  }
+}
+
+// 影片播放器目標區域
+.video-player-target {
+  width: 100%;
+  aspect-ratio: 16/9;
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  // 預設透明背景
+  background: transparent;
+
+  @media (max-width: 768px) {
+    border-radius: 8px;
+  }
+
+  // 當有播放器時顯示背景和陰影
+  &.has-player {
+    background: #000;
+    box-shadow: 0 8px 32px hsl(var(--bc) / 0.2);
+  }
+}
+
+// 移除重複的樣式，已整合到上面
+
+.video-info-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, hsl(var(--bc) / 0.8));
+  padding: 20px;
+  color: white;
+  pointer-events: none; // 避免干擾播放器控制
+  opacity: 0;
+  transition: opacity 0.3s ease;
+
+  &.visible {
+    opacity: 1;
+  }
+}
+
+.video-title {
+  font-size: 18px;
+  font-weight: 600;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  line-height: 1.4;
+}
+
+// 保留原有的縮圖樣式（用於其他地方）
+.video-thumbnail {
+  width: 100%;
+  height: 100%;
+  position: relative;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+// 舊的縮圖容器樣式 (保留用於其他地方)
+.video-info-container {
+  width: 100%;
+  aspect-ratio: 16/9;
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px hsl(var(--bc) / 0.2);
+
+  @media (max-width: 768px) {
+    border-radius: 8px;
+  }
+}
+
+// 控制按鈕樣式
+.btn-control {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: hsl(var(--bc) / 0.6);
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: hsl(var(--bc) / 0.1);
+    color: hsl(var(--bc) / 0.8);
+    transform: scale(1.05);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+}
+
+.btn-play {
+  background: hsl(var(--p));
+  color: hsl(var(--pc));
+
+  &:hover {
+    background: hsl(var(--p) / 0.8);
+    color: hsl(var(--pc));
+  }
+}
+
+.btn-control-lg {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: hsl(var(--bc) / 0.6);
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: hsl(var(--bc) / 0.1);
+    color: hsl(var(--bc) / 0.8);
+    transform: scale(1.05);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+}
+
+.btn-play-lg {
+  width: 72px;
+  height: 72px;
+  background: hsl(var(--p));
+  color: hsl(var(--pc));
+  box-shadow: 0 4px 16px hsl(var(--p) / 0.3);
+
+  &:hover {
+    background: hsl(var(--p) / 0.8);
+    color: hsl(var(--pc));
+    box-shadow: 0 6px 20px hsl(var(--p) / 0.4);
+  }
+}
+
+
+
+// 播放清單樣式
 .playlist-container {
   width: 100%;
-  
+
   .divide-y > div {
     padding: 0.5rem 0;
   }
 }
 
-// 控制按鈕容器
-.controls-container {
-  padding: 0.5rem 0;
-}
-
-.controls-and-playlist {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  flex: 1;
-  overflow-y: auto;
-}
-
-// 手機版特別處理
-@media (max-width: 768px) {
-  .content-container {
-    height: auto;
-    min-height: 100%;
-    overflow-y: visible;
-    display: flex;
-    flex-direction: column;
-  }
-
-  // 確保播放清單不會佔據過多空間
-  .playlist-container {
-    .divide-y {
-      max-height: 50vh; // 限制播放清單最大高度為螢幕高度的一半
-      overflow-y: auto;
-    }
-  }
-}
-
-:host ::ng-deep {
-  .youtube-player-container {
-    youtube-player {
-      width: 100% !important;
-      height: 100% !important;
-      
-      iframe {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100% !important;
-        height: 100% !important;
-      }
-    }
-  }
-}
-
-// 調整播放器和控制項容器的寬度和位置
-.player-section,
-.controls-container,
-.input-section,
-.playlist-container {
-  margin-top: 1rem;
-  width: 90%;
-  max-width: 1000px;
-  margin-left: auto;
-  margin-right: auto;
-  transition: all 0.3s ease;
-  
-  @media (min-width: 1024px) {
-    .chat-open & {
-      margin-right: 0;
-      transform: translateX(-50px); // 減少向左偏移的距離
-      width: 80%; // 稍微縮小寬度
-      max-width: 900px; // 調整最大寬度
-    }
-  }
-  
-  @media (max-width: 640px) {
-    width: 100%;
-  }
-}
-
-// 保留拖曳時的動畫
+// 拖曳相關樣式
 .cdk-drag {
   transition: box-shadow 200ms cubic-bezier(0, 0, 0.2, 1);
 }
 
-// 只在拖曳把手上顯示移動游標
 .pi-bars {
-  cursor: move; // 或是 cursor: grab
+  cursor: move;
   
   &:active {
-    cursor: grabbing; // 拖曳時的游標樣式
+    cursor: grabbing;
   }
 }
 
 .cdk-drag-preview {
-  box-shadow: 0 5px 5px -3px rgba(0, 0, 0, 0.2),
-              0 8px 10px 1px rgba(0, 0, 0, 0.14),
-              0 3px 14px 2px rgba(0, 0, 0, 0.12);
-  background-color: var(--surface-card);
+  box-shadow: 0 5px 5px -3px hsl(var(--bc) / 0.2),
+              0 8px 10px 1px hsl(var(--bc) / 0.14),
+              0 3px 14px 2px hsl(var(--bc) / 0.12);
+  background-color: hsl(var(--b1));
   border-radius: 4px;
   padding: 0.5rem;
 }
 
 .cdk-drag-placeholder {
   opacity: 0.3;
-  background: var(--surface-hover);
-  border: 1px dashed var(--primary-color);
+  background: hsl(var(--bc) / 0.1);
+  border: 1px dashed hsl(var(--p));
   border-radius: 4px;
 }
 
-// 只移除放開時的動畫
 .cdk-drag-animating {
   transition: none;
 }
 
-// 移除列表項目放開時的動畫
 .divide-y > div {
   &.cdk-drag-animating {
     transition: none;
   }
 }
 
-// 播放清單項目樣式
-.playlist-item {
-  display: flex;
-  align-items: center;
-  padding: 0.5rem;
-  margin: 0.25rem 0;
-  border-radius: 4px;
-  background: var(--surface-card);
-  border: 1px solid transparent;
-  
-  &:hover {
-    background: var(--surface-hover);
-    border-color: var(--primary-color);
-  }
-  
-  &.current-playing {
-    background: var(--primary-color);
-    color: var(--primary-color-text);
-  }
-}
+// 確保 YouTube 播放器正確顯示
+::ng-deep {
+  .youtube-player-container {
+    youtube-player {
+      width: 100% !important;
+      height: 100% !important;
 
-// 黑暗模式適配
-:host-context(.dark) {
-  .cdk-drag-preview {
-    background-color: var(--surface-900);
-    color: var(--surface-0);
-  }
-
-  .cdk-drag-placeholder {
-    background: var(--surface-800);
-    border-color: var(--primary-400);
-  }
-
-  .playlist-item {
-    background: var(--surface-900);
-    
-    &:hover {
-      background: var(--surface-800);
-      border-color: var(--primary-400);
-    }
-    
-    &.current-playing {
-      background: var(--primary-700);
-      color: var(--primary-color-text);
-    }
-  }
-}
-
-// 移動端優化
-@media (max-width: 768px) {
-  .playlist-item {
-    padding: 0.75rem;  // 增加點擊區域
-    
-    &:active {
-      background: var(--surface-hover);
+      iframe {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100% !important;
+        height: 100% !important;
+        border-radius: inherit;
+      }
     }
   }
 }

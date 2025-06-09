@@ -19,13 +19,14 @@
       "serve": {
         "executor": "@nx/workspace:run-commands",
         "options": {
+          "cwd": "apps/radio-online-server",
           "commands": [
-            {
-              "command": "npx tsc -p apps/radio-online-server/tsconfig.json"
-            },
-            {
-              "command": "node dist/apps/radio-online-server/index.js"
-            }
+            "docker compose down || true",
+            "mkdir -p data",
+            "chmod -R 777 data || true",
+            "docker compose build",
+            "docker compose up -d",
+            "docker logs -f $(docker ps -q --filter name=radio-online-server)"
           ],
           "parallel": false
         }

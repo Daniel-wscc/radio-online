@@ -1,38 +1,12 @@
-<div class="content-container w-full h-full flex flex-col gap-4 p-4 bg-gradient-to-br from-blue-50 via-white to-blue-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
-  <!-- 播放器區域 -->
-  @if(currentVideoId) {
-    <div class="player-section flex justify-center mb-2">
-      <div class="youtube-player-container rounded-2xl overflow-hidden shadow-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-        <youtube-player
-          [videoId]="currentVideoId"
-          [width]="videoWidth"
-          [height]="videoHeight"
-          [playerVars]="playerConfig"
-          (stateChange)="onPlayerStateChange($event)"
-          (ready)="onPlayerReady($event)"
-          #youtubePlayer
-        ></youtube-player>
-      </div>
-    </div>
-  }
-
-  <!-- 控制項 -->
-  @if(currentVideoId) {
-    <div class="controls-container flex justify-center mb-2">
-      <div class="flex gap-2">
-        <button class="btn btn-primary btn-sm rounded-full shadow" (click)="playPrevious()" [disabled]="currentIndex <= 0">上一首</button>
-        <button class="btn btn-primary btn-sm rounded-full shadow" (click)="playNext()" [disabled]="currentIndex >= playlist.length - 1">下一首</button>
-      </div>
-    </div>
-  }
+<div class="content-container w-full h-full flex flex-col gap-4 p-4 bg-base-200" [class.has-player]="currentVideoId">
 
   <!-- 輸入區域 -->
   <div class="input-section">
-    <div class="card bg-white/90 dark:bg-gray-800/90 shadow-xl rounded-2xl border border-gray-200 dark:border-gray-700 w-full">
+    <div class="card bg-base-100 shadow-xl rounded-2xl border border-base-300 w-full">
       <div class="card-body p-4">
-        <textarea 
-          rows="5" 
-          class="textarea textarea-bordered w-full dark:bg-gray-700 dark:text-white rounded-xl"
+        <textarea
+          rows="5"
+          class="textarea textarea-bordered w-full bg-base-100 text-base-content rounded-xl"
           [(ngModel)]="urlInput"
           placeholder="請輸入 YouTube 網址（每行一個）"
         ></textarea>
@@ -46,28 +20,30 @@
 
   <!-- 播放清單區域 -->
   <div class="playlist-container">
-    <div class="card bg-white/90 dark:bg-gray-800/90 shadow-xl rounded-2xl border border-gray-200 dark:border-gray-700 w-full">
+    <div class="card bg-base-100 shadow-xl rounded-2xl border border-base-300 w-full">
       <div class="card-body p-4">
         <div class="flex justify-between items-center mb-2">
-          <h3 class="text-lg font-bold dark:text-white">播放清單</h3>
+          <h3 class="text-lg font-bold text-base-content">播放清單</h3>
           <button class="btn btn-ghost btn-sm rounded-full" (click)="shufflePlaylist()" [disabled]="playlist.length <= 1" title="隨機排序">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
         </div>
-        <div class="divide-y divide-gray-200 dark:divide-gray-700" cdkDropList (cdkDropListDropped)="onDrop($event)">
-          @for (video of playlist; track video.id; let i = $index) {
-            <div class="py-2 flex justify-between items-center dark:text-white transition rounded-xl"
-                [class.bg-blue-50]="i === currentIndex"
-                [class.dark:bg-blue-900]="i === currentIndex"
+        <div class="divide-y divide-base-300" cdkDropList (cdkDropListDropped)="onDrop($event)">
+          @for (video of playlist; track $index; let i = $index) {
+            <div class="py-2 flex justify-between items-center text-base-content transition rounded-xl"
+                [class.bg-primary]="i === currentIndex"
+                [class.text-primary-content]="i === currentIndex"
                 cdkDrag
                 [cdkDragDisabled]="i === currentIndex">
-              <div class="flex items-center gap-2">
-                <span class="cursor-move" cdkDragHandle>
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+              <div class="flex items-center gap-2 flex-1 min-w-0">
+                <span class="cursor-move flex-shrink-0" cdkDragHandle>
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-base-content opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
                 </span>
-                <span class="truncate max-w-[120px]">{{ video.title || video.id }}</span>
+                <div class="flex-1 min-w-0">
+                  <div class="truncate font-medium">{{ video.title || video.id }}</div>
+                </div>
               </div>
-              <div class="flex gap-2">
+              <div class="flex gap-2 flex-shrink-0">
                 <button class="btn btn-ghost btn-xs rounded-full" (click)="playIndex(i)" [disabled]="i === currentIndex" title="播放">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7-7 7M5 5v14" /></svg>
                 </button>
@@ -82,3 +58,165 @@
     </div>
   </div>
 </div>
+
+<!-- 單一 YouTube 播放器 - 通過 CSS 控制位置 -->
+@if(currentVideoId) {
+  <div class="youtube-player-container"
+       [class.mini-mode]="!isPlayerExpanded"
+       [class.expanded-mode]="isPlayerExpanded">
+    <youtube-player
+      [videoId]="currentVideoId"
+      [width]="videoWidth || 640"
+      [height]="videoHeight || 360"
+      [playerVars]="playerConfig"
+      (stateChange)="onPlayerStateChange($event)"
+      (ready)="onPlayerReady($event)"
+      #youtubePlayer
+    ></youtube-player>
+  </div>
+}
+
+<!-- 底部播放條 -->
+@if(currentVideoId) {
+  <div class="player-bar" [class.expanded]="isPlayerExpanded">
+    <!-- 迷你播放器 (收起狀態) -->
+    @if(!isPlayerExpanded) {
+      <div class="mini-player" (click)="togglePlayer()">
+        <div class="mini-player-info">
+          <div class="mini-player-thumbnail">
+            <!-- 縮圖位置會被播放器覆蓋 -->
+          </div>
+          <div class="mini-player-details">
+            <div class="mini-player-title">{{ getCurrentVideoTitle() }}</div>
+          </div>
+        </div>
+        <div class="mini-player-controls" (click)="$event.stopPropagation()">
+          <button class="btn-control" (click)="playPrevious()" [disabled]="currentIndex <= 0" title="上一首">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <button class="btn-control btn-play" (click)="togglePlayPause()" title="播放/暫停">
+            @if(isPlaying) {
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" />
+              </svg>
+            } @else {
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1" />
+              </svg>
+            }
+          </button>
+          <button class="btn-control" (click)="playNext()" [disabled]="currentIndex >= playlist.length - 1" title="下一首">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+          <button class="btn-control" (click)="togglePlayer()" title="展開播放器">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 14l5-5 5 5" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    }
+
+    <!-- 展開的播放器 -->
+    @if(isPlayerExpanded) {
+      <div class="expanded-player">
+        <div class="expanded-player-header">
+          <button class="btn-control" (click)="togglePlayer()" title="收起播放器">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7-7-7" />
+            </svg>
+          </button>
+          <div class="expanded-player-title">正在播放</div>
+          <div></div>
+        </div>
+
+        <div class="expanded-player-content">
+          <!-- 左側：YouTube 播放器和控制 -->
+          <div class="expanded-player-left">
+            <!-- YouTube 播放器顯示區域 -->
+            <div class="video-player-target" id="video-target">
+              <!-- 播放器在展開模式下會通過 CSS 定位到這裡 -->
+              @if(isPlayerExpanded) {
+                <div class="video-info-overlay visible">
+                  <div class="video-title">{{ getCurrentVideoTitle() }}</div>
+                </div>
+              }
+            </div>
+
+            <!-- 播放控制 -->
+            <div class="expanded-player-controls">
+              <button class="btn-control-lg" (click)="playPrevious()" [disabled]="currentIndex <= 0" title="上一首">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <button class="btn-control-lg btn-play-lg" (click)="togglePlayPause()" title="播放/暫停">
+                @if(isPlaying) {
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" />
+                  </svg>
+                } @else {
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1" />
+                  </svg>
+                }
+              </button>
+              <button class="btn-control-lg" (click)="playNext()" [disabled]="currentIndex >= playlist.length - 1" title="下一首">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- 右側：播放清單 -->
+          <div class="expanded-player-right">
+            <div class="playlist-container h-full">
+              <div class="card bg-base-100 shadow-xl rounded-2xl border border-base-300 w-full h-full">
+                <div class="card-body p-4 flex flex-col h-full">
+                  <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold text-base-content">播放清單</h3>
+                    <button class="btn btn-ghost btn-sm rounded-full" (click)="shufflePlaylist()" [disabled]="playlist.length <= 1" title="隨機排序">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                    </button>
+                  </div>
+                  <div class="flex-1 overflow-y-auto divide-y divide-base-300" cdkDropList (cdkDropListDropped)="onDrop($event)">
+                    @for (video of playlist; track video.id; let i = $index) {
+                      <div class="py-3 flex justify-between items-center text-base-content transition rounded-xl hover:bg-base-200"
+                          [class.bg-primary]="i === currentIndex"
+                          [class.text-primary-content]="i === currentIndex"
+                          [class.hover:bg-primary-focus]="i === currentIndex"
+                          cdkDrag
+                          [cdkDragDisabled]="i === currentIndex">
+                        <div class="flex items-center gap-3 flex-1 min-w-0">
+                          <span class="cursor-move flex-shrink-0" cdkDragHandle>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-base-content opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                          </span>
+                          <div class="flex-1 min-w-0">
+                            <div class="truncate font-medium">{{ video.title || video.id }}</div>
+                          </div>
+                        </div>
+                        <div class="flex gap-1 flex-shrink-0">
+                          <button class="btn btn-ghost btn-xs rounded-full" (click)="playIndex(i)" [disabled]="i === currentIndex" title="播放">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7-7 7M5 5v14" /></svg>
+                          </button>
+                          <button class="btn btn-ghost btn-xs rounded-full" (click)="removeFromPlaylist(i)" title="移除">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                          </button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+  </div>
+}

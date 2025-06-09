@@ -61,6 +61,11 @@ export class RadioSyncService {
   loadPlaylist() {
     this.socket.emit('loadPlaylist');
   }
+  
+  // 清除播放清單
+  clearPlaylist() {
+    this.socket.emit('clearPlaylist');
+  }
 
   // 監聽從伺服器載入的播放清單
   onPlaylistLoaded(): Observable<any> {

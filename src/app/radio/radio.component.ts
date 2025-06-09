@@ -9,6 +9,7 @@ import { YoutubeRadioComponent } from '../youtube-radio/youtube-radio.component'
 import { ChatService } from '../services/chat.service';
 import { Subject } from 'rxjs';
 import { debounceTime } from 'rxjs/operators';
+import VConsole from 'vconsole';
 
 @Component({
   selector: 'app-radio',
@@ -27,7 +28,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   @ViewChild('audioPlayer') audioPlayer!: ElementRef<HTMLAudioElement>;
   private isAudioPlayerReady = false;
   
-  // private vConsole = new VConsole();
+  private vConsole = new VConsole();
   public stations: any[] = [];
   protected Array = Array;
   public currentStation: any = null;
@@ -339,16 +340,29 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     const userName = localStorage.getItem('userName') || '訪客';
     this.chatService.sendSystemMessage(`${userName} 切換到 YouTube 模式`);
 
+    // 檢查是否有播放清單，如果沒有則設置為播放第一首
+    let playlistToUse = this.youtubePlaylist || [];
+    let indexToUse = this.currentYoutubeIndex || -1;
+    let videoIdToUse = this.currentVideoId || null;
+
+    // 如果播放清單不為空但沒有選擇影片，自動選擇第一首
+    if (playlistToUse.length > 0 && indexToUse === -1) {
+      indexToUse = 0;
+      videoIdToUse = playlistToUse[0].id;
+      this.currentYoutubeIndex = 0;
+      this.currentVideoId = videoIdToUse;
+    }
+
     // 更新遠端狀態，包含完整的 YouTube 狀態
     this.radioSync.updateState({
       currentStation: null,
-      isPlaying: false,
+      isPlaying: playlistToUse.length > 0 && indexToUse >= 0, // 如果有播放清單且有選擇影片，設為播放中
       volume: this.audioPlayer?.nativeElement?.volume || 1,
       youtubeState: {
         isYoutubeMode: true,
-        playlist: this.youtubePlaylist || [],
-        currentIndex: this.currentYoutubeIndex || -1,
-        currentVideoId: this.currentVideoId || null
+        playlist: playlistToUse,
+        currentIndex: indexToUse,
+        currentVideoId: videoIdToUse
       }
     });
   }

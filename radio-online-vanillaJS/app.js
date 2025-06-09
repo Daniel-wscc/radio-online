@@ -377,7 +377,7 @@ function updateRadioState() {
     var state = {
         currentStation: currentStation,
         isPlaying: !audioPlayer.paused,
-        volume: audioPlayer.volume,  // 添加音量資訊
+        volume: audioPlayer.volume,
         youtubeState: {
             isYoutubeMode: isYoutubeMode,
             playlist: playlist,
@@ -385,7 +385,21 @@ function updateRadioState() {
             currentVideoId: currentVideoIndex >= 0 ? playlist[currentVideoIndex]?.id : null
         }
     };
-    socket.emit('updateRadioState', state);
+    
+    // 避免無限循環：只有當播放清單有變化時才發送
+    var currentPlaylistJson = JSON.stringify(playlist);
+    if (currentPlaylistJson !== lastPlaylistJson) {
+        lastPlaylistJson = currentPlaylistJson;
+        socket.emit('updateRadioState', state);
+        
+        // 只有當播放清單不為空時才發送 addPlaylist
+        if (isYoutubeMode && playlist.length > 0 && !isLoadingPlaylist) {
+            socket.emit('addPlaylist', playlist);
+        }
+    } else {
+        // 如果播放清單沒有變化，只發送狀態更新，不發送 addPlaylist
+        socket.emit('updateRadioState', state);
+    }
 }
 
 // 設置 Socket 監聽器
@@ -778,6 +792,15 @@ function switchToYoutube() {
 
     updatePlaylistUI();
     updateNavigationButtons();
+    
+    // 避免無限循環：只在播放清單為空時從伺服器載入
+    if (playlist.length === 0 && !isLoadingPlaylist) {
+        isLoadingPlaylist = true;
+        socket.emit('loadPlaylist');
+        setTimeout(function() {
+            isLoadingPlaylist = false;
+        }, 1000);
+    }
 }
 
 // 載入 YouTube 播放清單
@@ -887,6 +910,9 @@ function clearYoutubePlaylist() {
     updatePlaylistUI();
     updateRadioState();
     updateNavigationButtons();
+    
+    // 清除伺服器上的播放清單
+    socket.emit('clearPlaylist');
 }
 
 // 修改 onPlayerStateChange 函數
@@ -969,3 +995,41 @@ function handleFullscreenChange() {
 
 // 在文檔加載完成後初始化
 document.addEventListener('DOMContentLoaded', init);
+
+// 添加一個變數來追蹤是否正在載入播放清單
+var isLoadingPlaylist = false;
+var lastPlaylistJson = '';
+
+// 監聽從伺服器載入的播放清單
+socket.on('playlistLoaded', function(data) {
+    if (Array.isArray(data) && !isLoadingPlaylist) {
+        isLoadingPlaylist = true;
+        
+        // 將從伺服器載入的播放清單轉換為正確的格式
+        var newPlaylist = data.map(function(item) {
+            return {
+                id: item.videoId,
+                title: item.title || item.videoId
+            };
+        });
+        
+        // 只有當播放清單有變化時才更新
+        var newPlaylistJson = JSON.stringify(newPlaylist);
+        if (newPlaylistJson !== lastPlaylistJson) {
+            playlist = newPlaylist;
+            lastPlaylistJson = newPlaylistJson;
+            
+            // 如果目前沒有播放任何影片且播放清單不為空，開始播放第一首
+            if (currentVideoIndex === -1 && playlist.length > 0) {
+                playYoutubeIndex(0);
+            } else {
+                updatePlaylistUI();
+                updateNavigationButtons();
+            }
+        }
+        
+        setTimeout(function() {
+            isLoadingPlaylist = false;
+        }, 1000);
+    }
+});

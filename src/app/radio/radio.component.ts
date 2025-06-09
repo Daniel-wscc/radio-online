@@ -9,7 +9,7 @@ import { YoutubeRadioComponent } from '../youtube-radio/youtube-radio.component'
 import { ChatService } from '../services/chat.service';
 import { Subject } from 'rxjs';
 import { debounceTime } from 'rxjs/operators';
-import VConsole from 'vconsole';
+// import VConsole from 'vconsole';
 
 @Component({
   selector: 'app-radio',
@@ -28,7 +28,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   @ViewChild('audioPlayer') audioPlayer!: ElementRef<HTMLAudioElement>;
   private isAudioPlayerReady = false;
   
-  private vConsole = new VConsole();
+  // private vConsole = new VConsole();
   public stations: any[] = [];
   protected Array = Array;
   public currentStation: any = null;

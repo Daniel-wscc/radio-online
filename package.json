@@ -47,6 +47,7 @@
     "@nx/workspace": "21.1.2",
     "@schematics/angular": "^18.0.1",
     "@tailwindcss/postcss": "^4.1.7",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/jasmine": "~5.1.0",
     "@types/node": "^22.12.0",
     "@types/socket.io-client": "^1.4.36",

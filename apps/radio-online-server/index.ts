@@ -19,7 +19,6 @@ const app = express();
 
 // 加入 Express CORS 中間件
 app.use(cors({
-  // origin: "http://localhost:4200",
   origin: [
     "http://localhost:4200", 
     "http://192.168.0.10:4200", 
@@ -36,7 +35,6 @@ app.use(cors({
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    // origin: "http://localhost:4200",
     origin: [
       "http://localhost:4200", 
       "http://192.168.0.10:4200",
@@ -67,9 +65,9 @@ let currentRadioState = {
   isPlaying: false,
   volume: 1,
   youtubeState: {
-    playlist: [],
+    playlist: [] as any[],
     currentIndex: -1,
-    currentVideoId: null,
+    currentVideoId: null as string | null,
     isYoutubeMode: false
   }
 };
@@ -83,6 +81,12 @@ interface ChatMessage {
   timestamp: number;
 }
 
+interface YoutubeStateFromDB {
+  currentIndex: number;
+  currentVideoId: string | null;
+  isYoutubeMode: number;
+}
+
 // 初始化 SQLite 資料庫
 const db = new Database('/app/data/radio.db');
 db.exec(`CREATE TABLE IF NOT EXISTS playlist (
@@ -92,19 +96,92 @@ db.exec(`CREATE TABLE IF NOT EXISTS playlist (
   addedAt INTEGER
 )`);
 
+// 新增：創建 YouTube 狀態表
+db.exec(`CREATE TABLE IF NOT EXISTS youtube_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  currentIndex INTEGER DEFAULT -1,
+  currentVideoId TEXT DEFAULT NULL,
+  isYoutubeMode INTEGER DEFAULT 0,
+  updatedAt INTEGER
+)`);
+
+// 初始化 YouTube 狀態（如果不存在）
+const initYoutubeState = db.prepare(`
+  INSERT OR IGNORE INTO youtube_state (id, currentIndex, currentVideoId, isYoutubeMode, updatedAt)
+  VALUES (1, -1, NULL, 0, ?)
+`);
+initYoutubeState.run(Date.now());
+
 io.on('connection', (socket) => {
   // 更新線上人數
   onlineUsers++;
   io.emit('onlineUsers', onlineUsers);
   
   console.log('使用者連接');
-  
-  // 發送當前狀態給新連接的使用者
+
+  // 從資料庫載入 YouTube 狀態和播放清單並發送當前狀態給新連接的使用者
+  try {
+    const getYoutubeState = db.prepare('SELECT currentIndex, currentVideoId, isYoutubeMode FROM youtube_state WHERE id = 1');
+    const youtubeStateFromDB = getYoutubeState.get() as YoutubeStateFromDB | undefined;
+
+    // 載入播放清單
+    const select = db.prepare('SELECT videoId, title FROM playlist ORDER BY addedAt ASC');
+    const playlist = select.all();
+
+    // 轉換播放清單格式
+    const formattedPlaylist = playlist.map((item: any) => ({
+      id: item.videoId,
+      title: item.title || item.videoId
+    }));
+
+    if (youtubeStateFromDB) {
+      // 更新記憶體中的狀態
+      currentRadioState.youtubeState.playlist = formattedPlaylist;
+      currentRadioState.youtubeState.currentIndex = youtubeStateFromDB.currentIndex;
+      currentRadioState.youtubeState.currentVideoId = youtubeStateFromDB.currentVideoId;
+      currentRadioState.youtubeState.isYoutubeMode = youtubeStateFromDB.isYoutubeMode === 1;
+
+      console.log('從資料庫載入 YouTube 狀態:', {
+        currentIndex: youtubeStateFromDB.currentIndex,
+        currentVideoId: youtubeStateFromDB.currentVideoId,
+        isYoutubeMode: youtubeStateFromDB.isYoutubeMode === 1,
+        playlistLength: formattedPlaylist.length
+      });
+    }
+  } catch (error) {
+    console.error('從資料庫載入 YouTube 狀態時發生錯誤:', error);
+  }
+
   socket.emit('radioStateUpdate', currentRadioState);
 
   // 處理狀態更新
   socket.on('updateRadioState', (state) => {
     currentRadioState = state;
+
+    // 如果有 YouTube 狀態，保存到資料庫
+    if (state.youtubeState) {
+      try {
+        const updateYoutubeState = db.prepare(`
+          UPDATE youtube_state
+          SET currentIndex = ?, currentVideoId = ?, isYoutubeMode = ?, updatedAt = ?
+          WHERE id = 1
+        `);
+        updateYoutubeState.run(
+          state.youtubeState.currentIndex || -1,
+          state.youtubeState.currentVideoId || null,
+          state.youtubeState.isYoutubeMode ? 1 : 0,
+          Date.now()
+        );
+        console.log('已更新 YouTube 狀態到資料庫:', {
+          currentIndex: state.youtubeState.currentIndex,
+          currentVideoId: state.youtubeState.currentVideoId,
+          isYoutubeMode: state.youtubeState.isYoutubeMode
+        });
+      } catch (error) {
+        console.error('更新 YouTube 狀態到資料庫時發生錯誤:', error);
+      }
+    }
+
     // 廣播給所有其他使用者
     socket.broadcast.emit('radioStateUpdate', state);
   });
@@ -170,8 +247,36 @@ io.on('connection', (socket) => {
     try {
       const select = db.prepare('SELECT videoId, title FROM playlist ORDER BY addedAt ASC');
       const playlist = select.all();
+
+      // 同時載入 YouTube 狀態
+      const getYoutubeState = db.prepare('SELECT currentIndex, currentVideoId, isYoutubeMode FROM youtube_state WHERE id = 1');
+      const youtubeStateFromDB = getYoutubeState.get() as YoutubeStateFromDB | undefined;
+
+      // 發送播放清單和 YouTube 狀態
       socket.emit('playlistLoaded', playlist);
-      console.log('已從資料庫載入 playlist 並發送:', playlist.length + ' 個項目');
+
+      if (youtubeStateFromDB) {
+        // 轉換播放清單格式以符合前端期望的格式
+        const formattedPlaylist = playlist.map((item: any) => ({
+          id: item.videoId,
+          title: item.title || item.videoId
+        }));
+
+        // 更新並廣播完整的狀態
+        currentRadioState.youtubeState.playlist = formattedPlaylist;
+        currentRadioState.youtubeState.currentIndex = youtubeStateFromDB.currentIndex;
+        currentRadioState.youtubeState.currentVideoId = youtubeStateFromDB.currentVideoId;
+        currentRadioState.youtubeState.isYoutubeMode = youtubeStateFromDB.isYoutubeMode === 1;
+
+        socket.emit('radioStateUpdate', currentRadioState);
+        console.log('已載入 playlist 和 YouTube 狀態:', {
+          playlistLength: playlist.length,
+          currentIndex: youtubeStateFromDB.currentIndex,
+          currentVideoId: youtubeStateFromDB.currentVideoId
+        });
+      } else {
+        console.log('已從資料庫載入 playlist 並發送:', playlist.length + ' 個項目');
+      }
     } catch (error) {
       console.error('從資料庫載入 playlist 時發生錯誤:', error);
       socket.emit('playlistLoaded', { error: '無法載入播放清單' });

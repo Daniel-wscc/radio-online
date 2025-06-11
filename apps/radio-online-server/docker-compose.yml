@@ -1,14 +1,14 @@
-version: '3.8'
 services:
   radio-online-server:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: ${CONTAINER_NAME}
     ports:
-      - "1034:1034"
+      - "${PORT}:1034"
     restart: always
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=${NODE_ENV}
     volumes:
       - ./data:/app/data
     user: "node"

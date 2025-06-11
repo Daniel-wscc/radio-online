@@ -1,0 +1,124 @@
+<div class="min-h-screen bg-base-100">
+  <!-- 頂部導航 -->
+  <div class="navbar bg-base-200 shadow-lg">
+    <div class="navbar-start">
+      <button class="btn btn-ghost" (click)="goBack()">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+        </svg>
+        返回
+      </button>
+    </div>
+    <div class="navbar-center">
+      <h1 class="text-xl font-bold">我的播放清單</h1>
+    </div>
+    <div class="navbar-end">
+      <button class="btn btn-primary" (click)="openCreateModal()">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        新增播放清單
+      </button>
+    </div>
+  </div>
+
+  <!-- 主要內容 -->
+  <div class="container mx-auto p-6">
+    <!-- 載入中狀態 -->
+    <div *ngIf="isLoading" class="flex justify-center items-center py-20">
+      <span class="loading loading-spinner loading-lg"></span>
+    </div>
+
+    <!-- 播放清單網格 -->
+    <div *ngIf="!isLoading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <!-- 播放清單卡片 -->
+      <div *ngFor="let playlist of playlists" 
+           class="card bg-base-200 shadow-xl hover:shadow-2xl transition-all duration-300 cursor-pointer group"
+           (click)="openPlaylist(playlist)">
+        <div class="card-body">
+          <!-- 播放清單圖示 -->
+          <div class="flex justify-center mb-4">
+            <div class="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center group-hover:bg-primary/30 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+              </svg>
+            </div>
+          </div>
+
+          <!-- 播放清單資訊 -->
+          <h2 class="card-title text-center justify-center mb-2 line-clamp-2">{{ playlist.name }}</h2>
+          <p *ngIf="playlist.description" class="text-base-content/70 text-sm text-center line-clamp-3 mb-4">
+            {{ playlist.description }}
+          </p>
+          
+          <!-- 時間資訊 -->
+          <div class="text-xs text-base-content/50 text-center">
+            更新於 {{ formatDate(playlist.updatedAt) }}
+          </div>
+
+          <!-- 操作按鈕 -->
+          <div class="card-actions justify-center mt-4">
+            <button class="btn btn-sm btn-outline btn-error" 
+                    (click)="$event.stopPropagation(); deletePlaylist(playlist)">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              刪除
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 空狀態 -->
+    <div *ngIf="!isLoading && playlists.length === 0" class="text-center py-20">
+      <div class="mb-6">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-24 w-24 mx-auto text-base-content/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+        </svg>
+      </div>
+      <h3 class="text-xl font-semibold mb-2">還沒有播放清單</h3>
+      <p class="text-base-content/70 mb-6">建立您的第一個播放清單來開始收藏喜愛的音樂</p>
+      <button class="btn btn-primary" (click)="openCreateModal()">
+        建立播放清單
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 創建播放清單模態框 -->
+<div class="modal" [class.modal-open]="showCreateModal">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg mb-4">建立新播放清單</h3>
+    
+    <div class="form-control mb-4">
+      <label class="label">
+        <span class="label-text">播放清單名稱 *</span>
+      </label>
+      <input type="text" 
+             class="input input-bordered w-full" 
+             placeholder="輸入播放清單名稱"
+             [(ngModel)]="newPlaylistName"
+             maxlength="100">
+    </div>
+
+    <div class="form-control mb-6">
+      <label class="label">
+        <span class="label-text">描述 (選填)</span>
+      </label>
+      <textarea class="textarea textarea-bordered" 
+                placeholder="輸入播放清單描述"
+                [(ngModel)]="newPlaylistDescription"
+                maxlength="500"
+                rows="3"></textarea>
+    </div>
+
+    <div class="modal-action">
+      <button class="btn btn-ghost" (click)="closeCreateModal()">取消</button>
+      <button class="btn btn-primary" (click)="createPlaylist()" [disabled]="!newPlaylistName.trim()">
+        建立
+      </button>
+    </div>
+  </div>
+  <div class="modal-backdrop" (click)="closeCreateModal()"></div>
+</div>

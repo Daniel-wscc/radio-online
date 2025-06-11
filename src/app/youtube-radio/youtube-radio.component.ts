@@ -1,6 +1,7 @@
 import { Component, OnInit, ViewChild, ChangeDetectorRef, AfterViewInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { YouTubePlayer, YouTubePlayerModule } from '@angular/youtube-player';
 import { DragDropModule } from '@angular/cdk/drag-drop';
 import { RadioSyncService, RadioState } from '../services/radio-sync.service';
@@ -46,6 +47,18 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
   isPlayerExpanded = false;  // 播放器展開狀態
   isPlaying = false;  // 播放狀態
 
+  // 播放清單管理相關
+  availablePlaylists: any[] = [];
+  playlistThumbnails: { [playlistId: number]: string[] } = {}; // 儲存播放清單縮圖
+  playlistItemCounts: { [playlistId: number]: number } = {}; // 儲存播放清單歌曲數量
+  showAddToPlaylistModal = false;
+  selectedVideoForPlaylist: { id: string, title: string } | null = null;
+
+  // Toast 通知相關
+  toastMessage = '';
+  toastType: 'success' | 'error' | 'info' = 'info';
+  showToast = false;
+
   // 獲取當前播放器
   private getCurrentPlayer(): YouTubePlayer | null {
     return this.youtubePlayer || null;
@@ -54,7 +67,8 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
   constructor(
     private radioSync: RadioSyncService,
     private chatService: ChatService,
-    private cdr: ChangeDetectorRef
+    private cdr: ChangeDetectorRef,
+    private router: Router
   ) {
     // 訂閱狀態更新
     this.radioSync.radioState$.subscribe((state: RadioState) => {
@@ -144,11 +158,46 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
             this.syncYoutubeState(false); // 傳入 false 表示不要發送 addPlaylist
           }
         }
-        
+
         setTimeout(() => {
           this.isLoadingPlaylist = false;
         }, 1000);
-        
+
+        this.cdr.detectChanges();
+      }
+    });
+
+    // 監聽播放清單列表載入
+    this.radioSync.onPlaylistsLoaded().subscribe(data => {
+      if (Array.isArray(data)) {
+        this.availablePlaylists = data;
+        // 載入每個播放清單的縮圖
+        this.loadPlaylistThumbnails();
+        this.cdr.detectChanges();
+      }
+    });
+
+    // 監聽歌曲新增到播放清單的結果
+    this.radioSync.onSongAddedToPlaylist().subscribe(result => {
+      if (result.success) {
+        // 使用 toast 通知替代 alert
+        this.showToastMessage('歌曲已成功加入播放清單！', 'success');
+        this.closeAddToPlaylistModal();
+      } else {
+        // 失敗時使用 toast 通知
+        this.showToastMessage('加入播放清單失敗：' + result.error, 'error');
+      }
+    });
+
+    // 監聽播放清單詳情載入（用於獲取縮圖）
+    this.radioSync.onPlaylistDetailLoaded().subscribe(data => {
+      if (data.playlist && data.items) {
+        const playlistId = data.playlist.id;
+        const thumbnails = data.items.slice(0, 4).map((item: any) =>
+          `https://img.youtube.com/vi/${item.videoId}/mqdefault.jpg`
+        );
+        this.playlistThumbnails[playlistId] = thumbnails;
+        this.playlistItemCounts[playlistId] = data.items.length;
         this.cdr.detectChanges();
       }
     });
@@ -162,7 +211,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
     const tag = document.createElement('script');
     tag.src = 'https://www.youtube.com/iframe_api';
     document.body.appendChild(tag);
-    
+
     // 當切換到YouTube模式時，從伺服器載入播放清單
     // 避免無限循環：只在初始化時載入一次
     if (!this.isLoadingPlaylist) {
@@ -172,6 +221,9 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
         this.isLoadingPlaylist = false;
       }, 1000);
     }
+
+    // 載入可用的播放清單用於快速訪問
+    this.loadAvailablePlaylists();
   }
 
   ngAfterViewInit(): void {
@@ -575,5 +627,86 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
       return this.playlist[this.currentIndex].title || this.playlist[this.currentIndex].id;
     }
     return '';
+  }
+
+  // 導航到播放清單管理頁面
+  goToPlaylistManager() {
+    this.router.navigate(['/playlists']);
+  }
+
+  // 播放清單管理相關方法
+  loadAvailablePlaylists() {
+    this.radioSync.getPlaylists();
+  }
+
+  // 載入播放清單縮圖
+  loadPlaylistThumbnails() {
+    this.availablePlaylists.forEach(playlist => {
+      // 為每個播放清單載入詳情以獲取縮圖
+      this.radioSync.getPlaylistDetail(playlist.id);
+    });
+  }
+
+  openAddToPlaylistModal(video: { id: string, title?: string }) {
+    this.selectedVideoForPlaylist = {
+      id: video.id,
+      title: video.title || video.id
+    };
+    this.showAddToPlaylistModal = true;
+
+    // 載入可用的播放清單
+    this.radioSync.getPlaylists();
+  }
+
+  closeAddToPlaylistModal() {
+    this.showAddToPlaylistModal = false;
+    this.selectedVideoForPlaylist = null;
+  }
+
+  addToPlaylist(playlistId: number) {
+    if (this.selectedVideoForPlaylist) {
+      this.radioSync.addSongToPlaylist(
+        playlistId,
+        this.selectedVideoForPlaylist.id,
+        this.selectedVideoForPlaylist.title
+      );
+    }
+  }
+
+  // 快速訪問播放清單
+  goToPlaylist(playlistId: number) {
+    this.router.navigate(['/playlist', playlistId]);
+  }
+
+  // 獲取要顯示的播放清單（根據螢幕寬度限制數量）
+  getDisplayPlaylists(): any[] {
+    // 根據螢幕寬度決定顯示數量
+    const maxDisplay = window.innerWidth >= 1024 ? 4 : 3; // lg 螢幕顯示 4 個，其他顯示 3 個
+    return this.availablePlaylists.slice(0, maxDisplay);
+  }
+
+  // 獲取播放清單縮圖
+  getPlaylistThumbnails(playlistId: number): string[] {
+    return this.playlistThumbnails[playlistId] || [];
+  }
+
+  // 獲取播放清單歌曲數量
+  getPlaylistItemCount(playlistId: number): number {
+    return this.playlistItemCounts[playlistId] || 0;
+  }
+
+  // Toast 通知方法
+  showToastMessage(message: string, type: 'success' | 'error' | 'info' = 'info') {
+    this.toastMessage = message;
+    this.toastType = type;
+    this.showToast = true;
+
+    // 3 秒後自動隱藏
+    setTimeout(() => {
+      this.showToast = false;
+      this.cdr.detectChanges();
+    }, 3000);
+
+    this.cdr.detectChanges();
   }
 }

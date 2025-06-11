@@ -1,0 +1,213 @@
+<div class="min-h-screen bg-base-100">
+  <!-- 頂部導航 -->
+  <div class="navbar bg-base-200 shadow-lg">
+    <div class="navbar-start">
+      <button class="btn btn-ghost" (click)="goBack()">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+        </svg>
+        返回
+      </button>
+    </div>
+    <div class="navbar-center">
+      <h1 class="text-xl font-bold">{{ playlist?.name || '載入中...' }}</h1>
+    </div>
+    <div class="navbar-end">
+      <div class="flex gap-2">
+        <button class="btn btn-secondary" (click)="openAddSongModal()">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          新增歌曲
+        </button>
+        <button class="btn btn-primary"
+                (click)="addToCurrentQueue()"
+                [disabled]="!playlist || items.length === 0">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+          </svg>
+          全部加入佇列
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 載入中狀態 -->
+  <div *ngIf="isLoading" class="flex justify-center items-center py-20">
+    <span class="loading loading-spinner loading-lg"></span>
+  </div>
+
+  <!-- 播放清單內容 -->
+  <div *ngIf="!isLoading && playlist" class="container mx-auto p-6">
+    <!-- 播放清單資訊 -->
+    <div class="bg-base-200 rounded-lg p-6 mb-6">
+      <div class="flex items-center space-x-6">
+        <!-- 播放清單圖示 -->
+        <div class="w-24 h-24 bg-primary/20 rounded-lg flex items-center justify-center flex-shrink-0">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+          </svg>
+        </div>
+        
+        <!-- 播放清單詳情 -->
+        <div class="flex-1">
+          <h2 class="text-2xl font-bold mb-2">{{ playlist.name }}</h2>
+          <p *ngIf="playlist.description" class="text-base-content/70 mb-2">{{ playlist.description }}</p>
+          <div class="text-sm text-base-content/50">
+            <span>{{ items.length }} 首歌曲</span>
+            <span class="mx-2">•</span>
+            <span>建立於 {{ formatDate(playlist.createdAt) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 歌曲列表 -->
+    <div class="bg-base-200 rounded-lg overflow-hidden">
+      <!-- 列表標題 -->
+      <div class="bg-base-300 px-6 py-3 border-b border-base-content/10">
+        <div class="grid grid-cols-12 gap-4 text-sm font-medium text-base-content/70">
+          <div class="col-span-1">#</div>
+          <div class="col-span-2">縮圖</div>
+          <div class="col-span-6">標題</div>
+          <div class="col-span-2">加入時間</div>
+          <div class="col-span-1">操作</div>
+        </div>
+      </div>
+
+      <!-- 歌曲項目 -->
+      <div *ngIf="items.length === 0" class="text-center py-12">
+        <div class="mb-4">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto text-base-content/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+          </svg>
+        </div>
+        <h3 class="text-lg font-semibold mb-2">播放清單是空的</h3>
+        <p class="text-base-content/70">還沒有加入任何歌曲到這個播放清單</p>
+      </div>
+
+      <div *ngFor="let item of items; let i = index" 
+           class="px-6 py-3 border-b border-base-content/5 hover:bg-base-300/50 transition-colors group">
+        <div class="grid grid-cols-12 gap-4 items-center">
+          <!-- 序號 -->
+          <div class="col-span-1 text-sm text-base-content/70">
+            {{ i + 1 }}
+          </div>
+
+          <!-- 縮圖 -->
+          <div class="col-span-2">
+            <div class="relative w-16 h-12 bg-base-300 rounded overflow-hidden cursor-pointer"
+                 (click)="openYouTubeVideo(item.videoId)">
+              <img [src]="getYoutubeThumbnail(item.videoId)" 
+                   [alt]="item.title"
+                   class="w-full h-full object-cover"
+                   loading="lazy">
+              <!-- 播放按鈕覆蓋層 -->
+              <div class="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- 標題 -->
+          <div class="col-span-6">
+            <h3 class="font-medium line-clamp-2 cursor-pointer hover:text-primary transition-colors"
+                (click)="openYouTubeVideo(item.videoId)">
+              {{ item.title || item.videoId }}
+            </h3>
+          </div>
+
+          <!-- 加入時間 -->
+          <div class="col-span-2 text-sm text-base-content/70">
+            {{ formatDate(item.addedAt) }}
+          </div>
+
+          <!-- 操作按鈕 -->
+          <div class="col-span-1">
+            <div class="dropdown dropdown-end">
+              <div tabindex="0" role="button" class="btn btn-ghost btn-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                </svg>
+              </div>
+              <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
+                <li>
+                  <a (click)="addSingleToQueue(item)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    加入佇列
+                  </a>
+                </li>
+                <li>
+                  <a (click)="removeSong(item)" class="text-error">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    移除
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 新增歌曲模態框 -->
+<div class="modal" [class.modal-open]="showAddSongModal">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg mb-4">新增歌曲到播放清單</h3>
+
+    <div class="form-control mb-6">
+      <label class="label">
+        <span class="label-text">YouTube 網址</span>
+      </label>
+      <textarea class="textarea textarea-bordered w-full"
+                rows="5"
+                placeholder="請輸入 YouTube 網址（每行一個）"
+                [(ngModel)]="urlInput"></textarea>
+      <label class="label">
+        <span class="label-text-alt">支援 youtube.com 和 youtu.be 格式</span>
+      </label>
+    </div>
+
+    <div class="modal-action">
+      <button class="btn btn-ghost" (click)="closeAddSongModal()">取消</button>
+      <button class="btn btn-primary"
+              (click)="addSongsToPlaylist()"
+              [disabled]="!urlInput.trim()">
+        新增歌曲
+      </button>
+    </div>
+  </div>
+  <div class="modal-backdrop" (click)="closeAddSongModal()"></div>
+</div>
+
+<!-- Toast 通知 -->
+<div class="toast toast-top toast-end" *ngIf="showToast">
+  <div class="alert"
+       [class.alert-success]="toastType === 'success'"
+       [class.alert-error]="toastType === 'error'"
+       [class.alert-info]="toastType === 'info'">
+    <svg *ngIf="toastType === 'success'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+    <svg *ngIf="toastType === 'error'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+    <svg *ngIf="toastType === 'info'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+    <span>{{ toastMessage }}</span>
+    <button class="btn btn-sm btn-ghost" (click)="showToast = false">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+  </div>
+</div>

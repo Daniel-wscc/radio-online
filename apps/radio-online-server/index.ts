@@ -87,6 +87,23 @@ interface YoutubeStateFromDB {
   isYoutubeMode: number;
 }
 
+interface PlaylistFromDB {
+  id: number;
+  name: string;
+  description: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface PlaylistItemFromDB {
+  id: number;
+  playlistId: number;
+  videoId: string;
+  title: string;
+  addedAt: number;
+  sortOrder: number;
+}
+
 // 初始化 SQLite 資料庫
 const db = new Database('/app/data/radio.db');
 db.exec(`CREATE TABLE IF NOT EXISTS playlist (
@@ -94,6 +111,25 @@ db.exec(`CREATE TABLE IF NOT EXISTS playlist (
   videoId TEXT NOT NULL,
   title TEXT,
   addedAt INTEGER
+)`);
+
+// 新增：創建多個播放清單表格
+db.exec(`CREATE TABLE IF NOT EXISTS playlists (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  description TEXT,
+  createdAt INTEGER,
+  updatedAt INTEGER
+)`);
+
+db.exec(`CREATE TABLE IF NOT EXISTS playlist_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  playlistId INTEGER NOT NULL,
+  videoId TEXT NOT NULL,
+  title TEXT,
+  addedAt INTEGER,
+  sortOrder INTEGER DEFAULT 0,
+  FOREIGN KEY (playlistId) REFERENCES playlists (id) ON DELETE CASCADE
 )`);
 
 // 新增：創建 YouTube 狀態表
@@ -294,6 +330,165 @@ io.on('connection', (socket) => {
     } catch (error) {
       console.error('清除資料庫播放清單時發生錯誤:', error);
       socket.emit('playlistCleared', { success: false, error: '無法清除播放清單' });
+    }
+  });
+
+  // 新增：播放清單管理相關事件
+
+  // 獲取所有播放清單
+  socket.on('getPlaylists', () => {
+    console.log('收到 getPlaylists 請求');
+    try {
+      const select = db.prepare('SELECT * FROM playlists ORDER BY updatedAt DESC');
+      const playlists = select.all();
+      socket.emit('playlistsLoaded', playlists);
+      console.log('已載入播放清單列表:', playlists.length + ' 個播放清單');
+    } catch (error) {
+      console.error('載入播放清單列表時發生錯誤:', error);
+      socket.emit('playlistsLoaded', { error: '無法載入播放清單列表' });
+    }
+  });
+
+  // 創建新播放清單
+  socket.on('createPlaylist', (data) => {
+    console.log('收到 createPlaylist 請求:', data);
+    try {
+      const { name, description } = data;
+      if (!name || name.trim() === '') {
+        socket.emit('playlistCreated', { success: false, error: '播放清單名稱不能為空' });
+        return;
+      }
+
+      const now = Date.now();
+      const insert = db.prepare('INSERT INTO playlists (name, description, createdAt, updatedAt) VALUES (?, ?, ?, ?)');
+      const result = insert.run(name.trim(), description || '', now, now);
+
+      socket.emit('playlistCreated', {
+        success: true,
+        playlist: {
+          id: result.lastInsertRowid,
+          name: name.trim(),
+          description: description || '',
+          createdAt: now,
+          updatedAt: now
+        }
+      });
+      console.log('已創建播放清單:', name);
+    } catch (error) {
+      console.error('創建播放清單時發生錯誤:', error);
+      socket.emit('playlistCreated', { success: false, error: '無法創建播放清單' });
+    }
+  });
+
+  // 刪除播放清單
+  socket.on('deletePlaylist', (playlistId) => {
+    console.log('收到 deletePlaylist 請求:', playlistId);
+    try {
+      const deletePlaylist = db.prepare('DELETE FROM playlists WHERE id = ?');
+      const result = deletePlaylist.run(playlistId);
+
+      if (result.changes > 0) {
+        socket.emit('playlistDeleted', { success: true, playlistId });
+        console.log('已刪除播放清單:', playlistId);
+      } else {
+        socket.emit('playlistDeleted', { success: false, error: '播放清單不存在' });
+      }
+    } catch (error) {
+      console.error('刪除播放清單時發生錯誤:', error);
+      socket.emit('playlistDeleted', { success: false, error: '無法刪除播放清單' });
+    }
+  });
+
+  // 獲取播放清單詳情（包含所有曲目）
+  socket.on('getPlaylistDetail', (playlistId) => {
+    console.log('收到 getPlaylistDetail 請求:', playlistId);
+    try {
+      // 獲取播放清單基本資訊
+      const getPlaylist = db.prepare('SELECT * FROM playlists WHERE id = ?');
+      const playlist = getPlaylist.get(playlistId) as PlaylistFromDB | undefined;
+
+      if (!playlist) {
+        socket.emit('playlistDetailLoaded', { error: '播放清單不存在' });
+        return;
+      }
+
+      // 獲取播放清單中的所有曲目
+      const getItems = db.prepare('SELECT * FROM playlist_items WHERE playlistId = ? ORDER BY sortOrder ASC, addedAt ASC');
+      const items = getItems.all(playlistId) as PlaylistItemFromDB[];
+
+      socket.emit('playlistDetailLoaded', {
+        playlist,
+        items
+      });
+      console.log('已載入播放清單詳情:', playlist.name, '包含', items.length, '首歌曲');
+    } catch (error) {
+      console.error('載入播放清單詳情時發生錯誤:', error);
+      socket.emit('playlistDetailLoaded', { error: '無法載入播放清單詳情' });
+    }
+  });
+
+  // 新增歌曲到播放清單
+  socket.on('addSongToPlaylist', (data) => {
+    console.log('收到 addSongToPlaylist 請求:', data);
+    try {
+      const { playlistId, videoId, title } = data;
+
+      // 檢查歌曲是否已存在於播放清單中
+      const checkExist = db.prepare('SELECT id FROM playlist_items WHERE playlistId = ? AND videoId = ?');
+      const existing = checkExist.get(playlistId, videoId);
+
+      if (existing) {
+        socket.emit('songAddedToPlaylist', { success: false, error: '歌曲已存在於播放清單中' });
+        return;
+      }
+
+      const now = Date.now();
+      const insert = db.prepare('INSERT INTO playlist_items (playlistId, videoId, title, addedAt) VALUES (?, ?, ?, ?)');
+      const result = insert.run(playlistId, videoId, title || '', now);
+
+      // 更新播放清單的修改時間
+      const updatePlaylist = db.prepare('UPDATE playlists SET updatedAt = ? WHERE id = ?');
+      updatePlaylist.run(now, playlistId);
+
+      socket.emit('songAddedToPlaylist', {
+        success: true,
+        item: {
+          id: result.lastInsertRowid,
+          playlistId,
+          videoId,
+          title: title || '',
+          addedAt: now
+        }
+      });
+      console.log('已新增歌曲到播放清單:', videoId, '到播放清單', playlistId);
+    } catch (error) {
+      console.error('新增歌曲到播放清單時發生錯誤:', error);
+      socket.emit('songAddedToPlaylist', { success: false, error: '無法新增歌曲到播放清單' });
+    }
+  });
+
+  // 從播放清單中移除歌曲
+  socket.on('removeSongFromPlaylist', (data) => {
+    console.log('收到 removeSongFromPlaylist 請求:', data);
+    try {
+      const { playlistId, itemId } = data;
+
+      const deleteItem = db.prepare('DELETE FROM playlist_items WHERE id = ? AND playlistId = ?');
+      const result = deleteItem.run(itemId, playlistId);
+
+      if (result.changes > 0) {
+        // 更新播放清單的修改時間
+        const updatePlaylist = db.prepare('UPDATE playlists SET updatedAt = ? WHERE id = ?');
+        updatePlaylist.run(Date.now(), playlistId);
+
+        socket.emit('songRemovedFromPlaylist', { success: true, itemId });
+        console.log('已從播放清單中移除歌曲:', itemId);
+      } else {
+        socket.emit('songRemovedFromPlaylist', { success: false, error: '歌曲不存在' });
+      }
+    } catch (error) {
+      console.error('從播放清單中移除歌曲時發生錯誤:', error);
+      socket.emit('songRemovedFromPlaylist', { success: false, error: '無法移除歌曲' });
     }
   });
 

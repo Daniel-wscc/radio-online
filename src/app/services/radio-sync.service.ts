@@ -71,4 +71,66 @@ export class RadioSyncService {
   onPlaylistLoaded(): Observable<any> {
     return this.socket.fromEvent<any>('playlistLoaded');
   }
+
+  // 播放清單管理相關方法
+
+  // 獲取所有播放清單
+  getPlaylists() {
+    this.socket.emit('getPlaylists');
+  }
+
+  // 監聽播放清單列表載入
+  onPlaylistsLoaded(): Observable<any> {
+    return this.socket.fromEvent<any>('playlistsLoaded');
+  }
+
+  // 創建新播放清單
+  createPlaylist(name: string, description?: string) {
+    this.socket.emit('createPlaylist', { name, description });
+  }
+
+  // 監聽播放清單創建結果
+  onPlaylistCreated(): Observable<any> {
+    return this.socket.fromEvent<any>('playlistCreated');
+  }
+
+  // 刪除播放清單
+  deletePlaylist(playlistId: number) {
+    this.socket.emit('deletePlaylist', playlistId);
+  }
+
+  // 監聽播放清單刪除結果
+  onPlaylistDeleted(): Observable<any> {
+    return this.socket.fromEvent<any>('playlistDeleted');
+  }
+
+  // 獲取播放清單詳情
+  getPlaylistDetail(playlistId: number) {
+    this.socket.emit('getPlaylistDetail', playlistId);
+  }
+
+  // 監聽播放清單詳情載入
+  onPlaylistDetailLoaded(): Observable<any> {
+    return this.socket.fromEvent<any>('playlistDetailLoaded');
+  }
+
+  // 新增歌曲到播放清單
+  addSongToPlaylist(playlistId: number, videoId: string, title?: string) {
+    this.socket.emit('addSongToPlaylist', { playlistId, videoId, title });
+  }
+
+  // 監聽歌曲新增結果
+  onSongAddedToPlaylist(): Observable<any> {
+    return this.socket.fromEvent<any>('songAddedToPlaylist');
+  }
+
+  // 從播放清單中移除歌曲
+  removeSongFromPlaylist(playlistId: number, itemId: number) {
+    this.socket.emit('removeSongFromPlaylist', { playlistId, itemId });
+  }
+
+  // 監聽歌曲移除結果
+  onSongRemovedFromPlaylist(): Observable<any> {
+    return this.socket.fromEvent<any>('songRemovedFromPlaylist');
+  }
 }

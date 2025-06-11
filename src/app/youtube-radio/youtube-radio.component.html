@@ -1,5 +1,86 @@
 <div class="content-container w-full h-full flex flex-col gap-4 p-4 bg-base-200" [class.has-player]="currentVideoId">
 
+  <!-- 播放清單快速訪問區域 -->
+  <div class="playlist-quick-access-section">
+    <div class="card bg-base-100 shadow-xl rounded-2xl border border-base-300 w-full max-w-4xl mx-auto">
+      <div class="card-body p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-bold text-base-content">我的播放清單</h3>
+        </div>
+
+        <!-- 播放清單快速訪問網格 -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <!-- 播放清單卡片 -->
+          <div *ngFor="let playlist of getDisplayPlaylists()"
+               class="playlist-quick-card bg-base-200 rounded-xl overflow-hidden hover:bg-base-300 transition-all duration-200 cursor-pointer group"
+               (click)="goToPlaylist(playlist.id)">
+
+            <!-- 縮圖區域 -->
+            <div class="playlist-thumbnails-container">
+              <div class="thumbnails-grid" *ngIf="getPlaylistThumbnails(playlist.id).length > 0; else noThumbnails">
+                <!-- 顯示最多4張縮圖 -->
+                <div *ngFor="let thumbnail of getPlaylistThumbnails(playlist.id).slice(0, 4); let i = index"
+                     class="thumbnail-item">
+                  <img [src]="thumbnail"
+                       [alt]="'歌曲縮圖 ' + (i + 1)"
+                       class="w-full h-full object-cover"
+                       loading="lazy">
+                </div>
+              </div>
+
+              <!-- 沒有縮圖時的預設圖示 -->
+              <ng-template #noThumbnails>
+                <div class="default-thumbnail">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-primary/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                  </svg>
+                </div>
+              </ng-template>
+            </div>
+
+            <!-- 播放清單資訊 -->
+            <div class="p-3">
+              <div class="text-sm font-medium line-clamp-2 leading-tight text-center">{{ playlist.name }}</div>
+              <div class="text-xs text-base-content/60 text-center mt-1">
+                {{ getPlaylistItemCount(playlist.id) }} 首歌曲
+              </div>
+            </div>
+          </div>
+
+          <!-- 管理播放清單按鈕 -->
+          <div class="playlist-quick-card bg-base-200 rounded-xl overflow-hidden hover:bg-primary/10 transition-all duration-200 cursor-pointer group border-2 border-dashed border-base-300 hover:border-primary/50"
+               (click)="goToPlaylistManager()">
+
+            <!-- 管理按鈕內容 -->
+            <div class="h-full flex flex-col items-center justify-center p-6">
+              <!-- 管理圖示 -->
+              <div class="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-3 group-hover:bg-primary/20 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+              </div>
+              <!-- 管理文字 -->
+              <div class="text-sm font-medium text-primary text-center">管理播放清單</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 空狀態 -->
+        <div *ngIf="availablePlaylists.length === 0" class="text-center py-8">
+          <div class="mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto text-base-content/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+            </svg>
+          </div>
+          <p class="text-base-content/70 mb-6">還沒有播放清單</p>
+          <button class="btn btn-primary btn-sm" (click)="goToPlaylistManager()">
+            建立第一個播放清單
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 輸入區域 -->
   <div class="input-section">
     <div class="card bg-base-100 shadow-xl rounded-2xl border border-base-300 w-full">
@@ -46,6 +127,11 @@
               <div class="flex gap-2 flex-shrink-0">
                 <button class="btn btn-ghost btn-xs rounded-full" (click)="playIndex(i)" [disabled]="i === currentIndex" title="播放">
                   <svg class="size-[1.2em]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g stroke-linejoin="round" stroke-linecap="round" stroke-width="2" fill="none" stroke="currentColor"><path d="M6 3L20 12 6 21 6 3z"></path></g></svg>
+                </button>
+                <button class="btn btn-ghost btn-xs rounded-full" (click)="openAddToPlaylistModal(video)" title="加入播放清單">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                  </svg>
                 </button>
                 <button class="btn btn-ghost btn-xs rounded-full" (click)="removeFromPlaylist(i)" title="移除">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -200,6 +286,11 @@
                           <button class="btn btn-ghost btn-xs rounded-full" (click)="playIndex(i)" [disabled]="i === currentIndex" title="播放">
                             <svg class="size-[1.2em]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g stroke-linejoin="round" stroke-linecap="round" stroke-width="2" fill="none" stroke="currentColor"><path d="M6 3L20 12 6 21 6 3z"></path></g></svg>
                           </button>
+                          <button class="btn btn-ghost btn-xs rounded-full" (click)="openAddToPlaylistModal(video)" title="加入播放清單">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                          </button>
                           <button class="btn btn-ghost btn-xs rounded-full" (click)="removeFromPlaylist(i)" title="移除">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                           </button>
@@ -216,3 +307,72 @@
     }
   </div>
 }
+
+<!-- 加入播放清單模態框 -->
+<div class="modal" [class.modal-open]="showAddToPlaylistModal">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg mb-4">加入播放清單</h3>
+
+    <div *ngIf="selectedVideoForPlaylist" class="mb-4 p-3 bg-base-200 rounded-lg">
+      <div class="text-sm text-base-content/70">選擇的歌曲：</div>
+      <div class="font-medium">{{ selectedVideoForPlaylist.title }}</div>
+    </div>
+
+    <div class="mb-6">
+      <div class="text-sm font-medium mb-3">選擇播放清單：</div>
+
+      <div *ngIf="availablePlaylists.length === 0" class="text-center py-8">
+        <div class="text-base-content/50 mb-4">還沒有播放清單</div>
+        <button class="btn btn-primary btn-sm" (click)="goToPlaylistManager()">
+          建立播放清單
+        </button>
+      </div>
+
+      <div *ngIf="availablePlaylists.length > 0" class="space-y-2 max-h-60 overflow-y-auto">
+        <div *ngFor="let playlist of availablePlaylists"
+             class="flex items-center justify-between p-3 bg-base-200 rounded-lg hover:bg-base-300 transition-colors cursor-pointer"
+             (click)="addToPlaylist(playlist.id)">
+          <div>
+            <div class="font-medium">{{ playlist.name }}</div>
+            <div *ngIf="playlist.description" class="text-sm text-base-content/70">{{ playlist.description }}</div>
+          </div>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-action">
+      <button class="btn btn-ghost" (click)="closeAddToPlaylistModal()">取消</button>
+      <button class="btn btn-primary" (click)="goToPlaylistManager()">
+        管理播放清單
+      </button>
+    </div>
+  </div>
+  <div class="modal-backdrop" (click)="closeAddToPlaylistModal()"></div>
+</div>
+
+<!-- Toast 通知 -->
+<div class="toast toast-top toast-end" *ngIf="showToast">
+  <div class="alert"
+       [class.alert-success]="toastType === 'success'"
+       [class.alert-error]="toastType === 'error'"
+       [class.alert-info]="toastType === 'info'">
+    <svg *ngIf="toastType === 'success'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+    <svg *ngIf="toastType === 'error'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+    <svg *ngIf="toastType === 'info'" xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+    <span>{{ toastMessage }}</span>
+    <button class="btn btn-sm btn-ghost" (click)="showToast = false">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+  </div>
+</div>

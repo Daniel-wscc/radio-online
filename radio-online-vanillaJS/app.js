@@ -474,21 +474,54 @@ function handleStateUpdate(state) {
         } else {
             var oldVideoId = currentVideoIndex >= 0 ? playlist[currentVideoIndex]?.id : null;
             var newVideoId = state.youtubeState.playlist[state.youtubeState.currentIndex]?.id;
-            
+
             // 更新播放清單
             playlist = state.youtubeState.playlist;
             currentVideoIndex = state.youtubeState.currentIndex;
 
+            // 特殊處理：如果播放清單有內容但沒有設置當前影片，自動選擇第一首
+            if (playlist.length > 0 && (currentVideoIndex === -1 || !newVideoId)) {
+                console.log('播放清單有內容但沒有設置當前影片，自動選擇第一首');
+                currentVideoIndex = 0;
+                newVideoId = playlist[0].id;
+                // 更新遠端狀態
+                updateRadioState();
+            }
+
             // 在以下情況需要載入新影片：
             // 1. 需要模式切換
             // 2. 切換到不同的影片（包括上一首/下一首）
-            if (youtubePlayer && youtubePlayer.loadVideoById && newVideoId && 
-                (needModeSwitch || oldVideoId !== newVideoId)) {
+            // 3. 當前沒有播放任何影片但有播放清單
+            var shouldLoadVideo = needModeSwitch || oldVideoId !== newVideoId ||
+                                 (newVideoId && youtubePlayer && youtubePlayer.getPlayerState &&
+                                  youtubePlayer.getPlayerState() === YT.PlayerState.UNSTARTED);
+
+            if (youtubePlayer && youtubePlayer.loadVideoById && newVideoId && shouldLoadVideo) {
+                console.log('遠端載入新影片:', newVideoId, '原因:', {
+                    needModeSwitch: needModeSwitch,
+                    videoChanged: oldVideoId !== newVideoId,
+                    playerState: youtubePlayer.getPlayerState ? youtubePlayer.getPlayerState() : 'unknown'
+                });
                 youtubePlayer.loadVideoById({
                     videoId: newVideoId,
                     startSeconds: undefined,
                     suggestedQuality: 'default'
                 });
+                // 載入後自動播放
+                setTimeout(function() {
+                    if (youtubePlayer && youtubePlayer.playVideo) {
+                        youtubePlayer.playVideo();
+                    }
+                }, 1000);
+            } else if (youtubePlayer && newVideoId && youtubePlayer.getPlayerState &&
+                      youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
+                // 如果影片已經載入但沒有播放，直接播放
+                console.log('影片已載入，直接播放:', newVideoId);
+                setTimeout(function() {
+                    if (youtubePlayer && youtubePlayer.playVideo) {
+                        youtubePlayer.playVideo();
+                    }
+                }, 500);
             }
         }
         
@@ -508,8 +541,8 @@ function handleStateUpdate(state) {
         }
         controlCard.style.display = 'block';
 
-        // 檢查是否需要切換電台
-        if (!currentStation || currentStation.id !== state.currentStation.id) {
+        // 檢查是否需要切換電台或從 YouTube 模式切換回電台
+        if (!currentStation || currentStation.id !== state.currentStation.id || needModeSwitch) {
             // 先同步音量滑桿
             if (state.volume !== undefined && !isNaN(state.volume)) {
                 volumeSlider.value = state.volume * 100;
@@ -686,8 +719,21 @@ function onPlayerReady(event) {
     console.log('Player Ready');
     // 如果有待播放的視頻，立即播放
     if (currentVideoIndex !== -1 && playlist[currentVideoIndex]) {
-        event.target.loadVideoById(playlist[currentVideoIndex].id);
+        console.log('開始播放影片:', playlist[currentVideoIndex].id);
+        // 使用 setTimeout 確保播放器完全初始化後再播放
+        setTimeout(function() {
+            try {
+                event.target.loadVideoById(playlist[currentVideoIndex].id);
+                // 載入後自動播放
+                setTimeout(function() {
+                    event.target.playVideo();
+                }, 500);
+            } catch (error) {
+                console.error('播放影片時發生錯誤:', error);
+            }
+        }, 100);
     } else if (playlist.length > 0) {
+        console.log('自動播放第一首影片');
         playYoutubeIndex(0);
     }
 }
@@ -874,7 +920,14 @@ function playYoutubeIndex(index) {
     if (index >= 0 && index < playlist.length) {
         currentVideoIndex = index;
         if (youtubePlayer && youtubePlayer.loadVideoById) {
+            console.log('播放影片索引:', index, '影片ID:', playlist[index].id);
             youtubePlayer.loadVideoById(playlist[index].id);
+            // 載入後自動播放
+            setTimeout(function() {
+                if (youtubePlayer && youtubePlayer.playVideo) {
+                    youtubePlayer.playVideo();
+                }
+            }, 500);
         }
         updatePlaylistUI();
         updateRadioState();

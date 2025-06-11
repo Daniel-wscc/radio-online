@@ -9,9 +9,8 @@
       "options": {
         "cwd": "apps/radio-online-server",
         "commands": [
-          "docker compose down",
-          "docker compose build --no-cache",
-          "docker compose up -d"
+          "docker compose --env-file .env.test down",
+          "docker compose --env-file .env.test up -d --build"
         ],
         "parallel": false
       }

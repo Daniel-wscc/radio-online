@@ -1,0 +1,29 @@
+<div class="dropdown dropdown-end">
+  <div tabindex="0" role="button" class="btn btn-sm btn-ghost">
+    <div class="bg-base-100 group-hover:border-base-content/20 border-base-content/10 grid shrink-0 grid-cols-2 gap-0.5 rounded-md border p-1 transition-colors">
+      <div class="bg-base-content size-1 rounded-full"></div>
+      <div class="bg-primary size-1 rounded-full"></div>
+      <div class="bg-secondary size-1 rounded-full"></div>
+      <div class="bg-accent size-1 rounded-full"></div>
+    </div>
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+    </svg>
+  </div>
+  <div class="dropdown-content bg-base-200 text-base-content rounded-box top-px overflow-y-auto border border-white/5 shadow-2xl outline-1 outline-black/5 mt-16">
+    <ul tabindex="0" class="menu w-56">
+      <li class="menu-title text-xs">主題</li>
+      <li *ngFor="let theme of themeList">
+        <button class="gap-3 px-2" (click)="changeTheme($event)" [attr.data-value]="theme.value">
+          <div [attr.data-theme]="theme.value" class="bg-base-100 grid shrink-0 grid-cols-2 gap-0.5 rounded-md p-1 shadow-sm">
+            <div class="bg-base-content size-1 rounded-full"></div>
+            <div class="bg-primary size-1 rounded-full"></div>
+            <div class="bg-secondary size-1 rounded-full"></div>
+            <div class="bg-accent size-1 rounded-full"></div>
+          </div>
+          <span>{{ theme.label }}</span>
+        </button>
+      </li>
+    </ul>
+  </div>
+</div>

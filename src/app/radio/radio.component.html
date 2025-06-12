@@ -2,40 +2,7 @@
   <!-- 確保 audio 元素在最上層 -->
   <audio #audioPlayer muted autoplay crossorigin="anonymous"></audio>
 
-  <!-- 主題切換選單，固定在右上角 -->
-  <div class="fixed top-4 right-4 z-50">
-    <div class="dropdown dropdown-end">
-      <div tabindex="0" role="button" class="btn btn-sm btn-ghost">
-        <div class="bg-base-100 group-hover:border-base-content/20 border-base-content/10 grid shrink-0 grid-cols-2 gap-0.5 rounded-md border p-1 transition-colors">
-          <div class="bg-base-content size-1 rounded-full"></div>
-          <div class="bg-primary size-1 rounded-full"></div>
-          <div class="bg-secondary size-1 rounded-full"></div>
-          <div class="bg-accent size-1 rounded-full"></div>
-        </div>
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-        </svg>
-      </div>
-      <div class="dropdown-content bg-base-200 text-base-content rounded-box top-px overflow-y-auto border border-white/5 shadow-2xl outline-1 outline-black/5 mt-16">
-        <ul tabindex="0" class="menu w-56">
-          <li class="menu-title text-xs">主題</li>
-          @for (theme of themeList; track theme.value) {
-            <li>
-              <button class="gap-3 px-2" (click)="changeTheme($event)" [attr.data-value]="theme.value">
-                <div attr.data-theme="{{ theme.value }}" class="bg-base-100 grid shrink-0 grid-cols-2 gap-0.5 rounded-md p-1 shadow-sm">
-                  <div class="bg-base-content size-1 rounded-full"></div>
-                  <div class="bg-primary size-1 rounded-full"></div>
-                  <div class="bg-secondary size-1 rounded-full"></div>
-                  <div class="bg-accent size-1 rounded-full"></div>
-                </div>
-                <span>{{ theme.label }}</span>
-              </button>
-            </li>
-          }
-        </ul>
-      </div>
-    </div>
-  </div>
+
 
   <!-- 左側 Sidebar -->
   <div class="sidebar-container w-full md:w-1/4 bg-base-200 shadow-xl border-r border-base-300 flex flex-col h-screen">
@@ -84,6 +51,10 @@
   <div class="player-container w-full md:w-3/4 bg-base-100 h-screen overflow-hidden">
     <div class="player-content w-full h-full overflow-y-auto">
       @if (!isYoutubeMode) {
+        <!-- 主題切換選單，位於內容流中 -->
+        <div class="flex justify-end p-4">
+          <app-theme-switcher></app-theme-switcher>
+        </div>
         <div class="w-full max-w-2xl p-6 mx-auto">
           <div class="card bg-base-200 shadow-2xl rounded-2xl border border-base-300">
             <div class="card-body p-8">

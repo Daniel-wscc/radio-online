@@ -7,6 +7,7 @@ import { DragDropModule } from '@angular/cdk/drag-drop';
 import { RadioSyncService, RadioState } from '../services/radio-sync.service';
 import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
 import { ChatService } from '../services/chat.service';
+import { ThemeSwitcherComponent } from '../shared/theme-switcher/theme-switcher.component';
 
 @Component({
   selector: 'app-youtube-radio',
@@ -16,7 +17,8 @@ import { ChatService } from '../services/chat.service';
     CommonModule,
     FormsModule,
     YouTubePlayerModule,
-    DragDropModule
+    DragDropModule,
+    ThemeSwitcherComponent
   ],
   standalone: true
 })
@@ -58,6 +60,8 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
   toastMessage = '';
   toastType: 'success' | 'error' | 'info' = 'info';
   showToast = false;
+
+
 
   // 獲取當前播放器
   private getCurrentPlayer(): YouTubePlayer | null {
@@ -709,4 +713,5 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
 
     this.cdr.detectChanges();
   }
+
 }

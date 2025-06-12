@@ -1,0 +1,47 @@
+// 主題切換元件樣式
+:host {
+  display: block;
+}
+
+// 下拉選單樣式
+.dropdown-content {
+  max-height: 300px;
+  overflow-y: auto;
+  
+  // 自定義滾動條樣式
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: hsl(var(--b2));
+    border-radius: 2px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: hsl(var(--bc) / 0.3);
+    border-radius: 2px;
+
+    &:hover {
+      background: hsl(var(--bc) / 0.5);
+    }
+  }
+
+  // Firefox 滾動條樣式
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--bc) / 0.3) hsl(var(--b2));
+}
+
+// 主題預覽樣式
+[data-theme] {
+  transition: all 0.2s ease;
+}
+
+// 按鈕懸停效果
+.btn {
+  transition: all 0.2s ease;
+  
+  &:hover {
+    transform: scale(1.05);
+  }
+}

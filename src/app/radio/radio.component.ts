@@ -6,6 +6,7 @@ import { RadioSyncService, RadioState } from '../services/radio-sync.service';
 import { RouterModule } from '@angular/router';
 import { YouTubePlayerModule } from '@angular/youtube-player';
 import { YoutubeRadioComponent } from '../youtube-radio/youtube-radio.component';
+import { ThemeSwitcherComponent } from '../shared/theme-switcher/theme-switcher.component';
 import { ChatService } from '../services/chat.service';
 import { Subject } from 'rxjs';
 import { debounceTime } from 'rxjs/operators';
@@ -19,7 +20,8 @@ import { debounceTime } from 'rxjs/operators';
     FormsModule,
     RouterModule,
     YouTubePlayerModule,
-    YoutubeRadioComponent
+    YoutubeRadioComponent,
+    ThemeSwitcherComponent
   ],
   templateUrl: './radio.component.html',
   // styleUrls: ['./radio.component.less']
@@ -109,15 +111,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
   private currentPlayPromise: Promise<void> | null = null;
 
-  themeList = [
-    { label: 'Light', value: 'light' },
-    { label: 'Dark', value: 'dark' },
-    { label: 'Cupcake', value: 'cupcake' },
-    { label: 'Emerald', value: 'emerald' },
-    { label: 'Cyberpunk', value: 'cyberpunk' },
-    { label: 'Black', value: 'black' },
-  ];
-  selectedTheme = 'dark';
+
 
   private volumeChange$ = new Subject<number>();
 
@@ -430,11 +424,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     }
   }
 
-  changeTheme(event: any) {
-    const theme = event.currentTarget?.getAttribute('data-value') || this.selectedTheme;
-    document.documentElement.setAttribute('data-theme', theme);
-    this.selectedTheme = theme;
-  }
+
 
   // 添加 ngOnDestroy 方法
   ngOnDestroy() {

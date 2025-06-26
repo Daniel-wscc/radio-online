@@ -151,9 +151,10 @@ initYoutubeState.run(Date.now());
 io.on('connection', (socket) => {
   // 更新線上人數
   onlineUsers++;
+  console.log('使用者連接，當前線上人數:', onlineUsers);
   io.emit('onlineUsers', onlineUsers);
-  
-  console.log('使用者連接');
+
+  console.log('已發送線上人數更新事件:', onlineUsers);
 
   // 從資料庫載入 YouTube 狀態和播放清單並發送當前狀態給新連接的使用者
   try {
@@ -189,6 +190,19 @@ io.on('connection', (socket) => {
   }
 
   socket.emit('radioStateUpdate', currentRadioState);
+
+  // 處理請求當前狀態
+  socket.on('requestCurrentState', () => {
+    console.log('收到請求當前狀態，發送狀態和線上人數');
+    socket.emit('radioStateUpdate', currentRadioState);
+    socket.emit('onlineUsers', onlineUsers);
+  });
+
+  // 處理請求線上人數
+  socket.on('requestOnlineUsers', () => {
+    console.log('收到請求線上人數:', onlineUsers);
+    socket.emit('onlineUsers', onlineUsers);
+  });
 
   // 處理狀態更新
   socket.on('updateRadioState', (state) => {
@@ -495,8 +509,9 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     // 更新線上人數
     onlineUsers--;
+    console.log('使用者斷開連接，當前線上人數:', onlineUsers);
     io.emit('onlineUsers', onlineUsers);
-    console.log('使用者斷開連接');
+    console.log('已發送線上人數更新事件:', onlineUsers);
   });
 });
 

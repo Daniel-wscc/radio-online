@@ -38,13 +38,55 @@ export class RadioSyncService {
   constructor(private socket: Socket) {
     // 監聽來自伺服器的狀態更新
     this.socket.fromEvent<RadioState>('radioStateUpdate').subscribe(state => {
+      console.log('收到狀態更新:', state);
       this.radioState.next(state);
+    });
+
+    // 監聽只有音量的更新
+    this.socket.fromEvent<{volume: number}>('volumeUpdate').subscribe(data => {
+      const currentState = this.radioState.value;
+      this.radioState.next({
+        ...currentState,
+        volume: data.volume
+      });
     });
 
     // 監聽線上人數更新
     this.socket.fromEvent<number>('onlineUsers').subscribe(count => {
+      console.log('收到線上人數更新:', count);
       this.onlineUsersSubject.next(count);
     });
+
+    // 監聽Socket連接事件
+    this.socket.fromEvent('connect').subscribe(() => {
+      console.log('Socket已連接，請求當前狀態和線上人數');
+      this.requestCurrentState();
+      this.requestOnlineUsers();
+    });
+
+    // 監聽Socket斷開事件
+    this.socket.fromEvent('disconnect').subscribe(() => {
+      console.log('Socket已斷開連接');
+    });
+
+    // 如果已經連接，立即請求狀態
+    if (this.socket.ioSocket.connected) {
+      console.log('Socket已連接，立即請求當前狀態和線上人數');
+      this.requestCurrentState();
+      this.requestOnlineUsers();
+    } else {
+      console.log('Socket尚未連接，等待連接事件');
+    }
+  }
+
+  // 請求當前狀態
+  requestCurrentState() {
+    this.socket.emit('requestCurrentState');
+  }
+
+  // 請求線上人數
+  requestOnlineUsers() {
+    this.socket.emit('requestOnlineUsers');
   }
 
   // 更新廣播狀態

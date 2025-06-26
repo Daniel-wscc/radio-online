@@ -8,6 +8,7 @@ import { RadioSyncService, RadioState } from '../services/radio-sync.service';
 import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
 import { ChatService } from '../services/chat.service';
 import { ThemeSwitcherComponent } from '../shared/theme-switcher/theme-switcher.component';
+import { take } from 'rxjs/operators';
 
 @Component({
   selector: 'app-youtube-radio',
@@ -111,14 +112,18 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
             }
 
             // 如果是 YouTube 模式且有影片要播放，且播放器已準備就緒
-            if (youtubeState.isYoutubeMode && this.currentVideoId && this.isPlayerReady) {
+            // 但只有在組件初始化完成後才自動播放
+            if (youtubeState.isYoutubeMode && this.currentVideoId && this.isPlayerReady && !this.isComponentInitializing) {
+              console.log('狀態更新觸發播放');
               this.safePlayVideo();
             }
             // 如果播放器還沒準備好，但有影片要播放，等播放器準備好後會自動播放
           }
 
           // 如果切換到 YouTube 模式且狀態顯示正在播放，確保播放器開始播放
-          if (youtubeState.isYoutubeMode && state.isPlaying && this.currentVideoId && this.isPlayerReady) {
+          // 但只有在組件初始化完成後才自動播放
+          if (youtubeState.isYoutubeMode && state.isPlaying && this.currentVideoId && this.isPlayerReady && !this.isComponentInitializing) {
+            console.log('播放狀態更新觸發播放');
             this.safePlayVideo();
           }
 
@@ -210,7 +215,12 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
   // 添加一個標誌來追蹤是否正在載入播放清單
   private isLoadingPlaylist = false;
 
+  // 添加一個標誌來追蹤組件是否剛初始化
+  private isComponentInitializing = true;
+
   ngOnInit() {
+    console.log('YouTube組件初始化');
+
     // 載入 YouTube IFrame API
     const tag = document.createElement('script');
     tag.src = 'https://www.youtube.com/iframe_api';
@@ -228,6 +238,12 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
 
     // 載入可用的播放清單用於快速訪問
     this.loadAvailablePlaylists();
+
+    // 延迟设置初始化完成标志，避免在状态同步时重复播放
+    setTimeout(() => {
+      this.isComponentInitializing = false;
+      console.log('YouTube組件初始化完成');
+    }, 2000);
   }
 
   ngAfterViewInit(): void {
@@ -410,6 +426,12 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
 
   // 修改 syncYoutubeState 方法，添加參數控制是否發送 addPlaylist
   private syncYoutubeState(sendAddPlaylist = true) {
+    // 如果組件正在初始化，不發送狀態更新，避免中斷播放
+    if (this.isComponentInitializing) {
+      console.log('組件初始化中，跳過狀態更新');
+      return;
+    }
+
     // 只有當播放清單不為空且需要發送 addPlaylist 時才發送
     if (sendAddPlaylist && this.playlist.length > 0) {
       this.radioSync.addPlaylist(this.playlist);
@@ -427,11 +449,18 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
       }
     };
 
+    console.log('發送YouTube狀態更新:', newState);
     this.radioSync.updateState(newState);
   }
 
   // 只同步播放狀態，不發送 addPlaylist
   private syncPlayingState() {
+    // 如果組件正在初始化，不發送狀態更新，避免中斷播放
+    if (this.isComponentInitializing) {
+      console.log('組件初始化中，跳過播放狀態更新');
+      return;
+    }
+
     const newState = {
       isPlaying: this.isPlaying,
       volume: 1,
@@ -443,36 +472,47 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
       }
     };
 
+    console.log('發送播放狀態更新:', newState);
     this.radioSync.updateState(newState);
   }
 
   onPlayerReady(event: YT.PlayerEvent) {
     this.isPlayerReady = true;
-    console.log('YouTube 播放器已準備就緒');
+    console.log('YouTube 播放器已準備就緒，當前影片ID:', this.currentVideoId, '播放狀態:', this.isPlaying);
 
     if (this.currentVideoId) {
-      console.log('開始播放影片:', this.currentVideoId);
-      // 使用 setTimeout 確保播放器完全初始化後再播放
+      // 獲取影片標題但不自動播放
+      this.getVideoTitle(this.currentVideoId!).then(title => {
+        if (title && this.currentIndex !== -1 && this.currentIndex < this.playlist.length) {
+          this.playlist[this.currentIndex].title = title;
+          // 更新標題時不需要發送 addPlaylist
+          this.syncYoutubeState(false);
+        }
+      });
+
+      // 只有在明確需要播放時才開始播放
+      // 檢查當前的播放狀態，如果應該播放則播放
       setTimeout(() => {
         try {
-          event.target.playVideo();  // 直接使用事件對象來播放
-          this.getVideoTitle(this.currentVideoId!).then(title => {
-            if (title && this.currentIndex !== -1) {
-              this.playlist[this.currentIndex].title = title;
-              // 更新標題時不需要發送 addPlaylist
-              this.syncYoutubeState(false);
+          // 從RadioState檢查是否應該播放
+          this.radioSync.radioState$.pipe(
+            // 只取第一個值
+            take(1)
+          ).subscribe(state => {
+            if (state.youtubeState?.isYoutubeMode && state.isPlaying) {
+              console.log('根據狀態開始播放影片:', this.currentVideoId);
+              event.target.playVideo();
+            } else {
+              console.log('根據狀態不播放影片，當前播放狀態:', state.isPlaying);
             }
           });
         } catch (error) {
-          console.error('播放影片時發生錯誤:', error);
-          // 如果直接播放失敗，嘗試使用 safePlayVideo
-          this.safePlayVideo();
+          console.error('檢查播放狀態時發生錯誤:', error);
         }
       }, 100);
     } else if (this.playlist.length > 0 && this.currentIndex === -1) {
-      // 如果沒有當前影片但有播放清單，自動播放第一首
-      console.log('自動播放第一首影片');
-      this.playIndex(0);
+      // 如果沒有當前影片但有播放清單，不自動播放，等待用戶操作
+      console.log('有播放清單但沒有當前影片，等待用戶選擇');
     }
   }
 

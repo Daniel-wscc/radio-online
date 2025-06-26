@@ -152,6 +152,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
     // 訂閱線上人數更新
     this.radioSync.onlineUsers$.subscribe(count => {
+      console.log('組件收到線上人數更新:', count, '當前值:', this.onlineUsers);
       this.onlineUsers = count;
       this.cdr.detectChanges();
     });
@@ -171,6 +172,18 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     if (this.audioPlayer?.nativeElement) {
       console.log('Audio player initialized');
       this.isAudioPlayerReady = true;
+
+      // 添加播放状态监听器
+      this.audioPlayer.nativeElement.addEventListener('play', () => {
+        this.isPlaying = true;
+        this.cdr.detectChanges();
+      });
+
+      this.audioPlayer.nativeElement.addEventListener('pause', () => {
+        this.isPlaying = false;
+        this.cdr.detectChanges();
+      });
+
       this.audioPlayer.nativeElement.addEventListener('timeupdate', () => {
         this.currentTime = this.audioPlayer.nativeElement.currentTime;
         this.duration = this.audioPlayer.nativeElement.duration || 0;
@@ -180,6 +193,14 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
       console.error('Audio player not found');
     }
     this.initializeStations();  // 改用新方法初始化電台
+
+    // 延迟请求当前状态，确保Socket连接已建立
+    setTimeout(() => {
+      console.log('組件初始化完成，請求當前狀態和線上人數');
+      this.radioSync.requestCurrentState();
+      this.radioSync.requestOnlineUsers();
+    }, 1000);
+
     this.cdr.detectChanges();
   }
 

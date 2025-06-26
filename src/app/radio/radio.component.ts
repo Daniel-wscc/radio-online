@@ -9,7 +9,7 @@ import { YoutubeRadioComponent } from '../youtube-radio/youtube-radio.component'
 import { ThemeSwitcherComponent } from '../shared/theme-switcher/theme-switcher.component';
 import { ChatService } from '../services/chat.service';
 import { Subject } from 'rxjs';
-import { debounceTime } from 'rxjs/operators';
+import { debounceTime, take } from 'rxjs/operators';
 // import VConsole from 'vconsole';
 
 @Component({
@@ -160,10 +160,25 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     this.volumeChange$.pipe(
       debounceTime(300) // 300ms 可依需求調整
     ).subscribe((vol) => {
+      // 獲取當前完整狀態，確保包含 youtubeState
+      let currentState: RadioState | undefined;
+      this.radioSync.radioState$.pipe(take(1)).subscribe(state => {
+        currentState = state;
+      });
+
+      // 發送完整狀態，只更新音量，並強制 isYoutubeMode: false
       this.radioSync.updateState({
         currentStation: this.currentStation,
         isPlaying: this.isPlaying,
-        volume: vol
+        volume: vol,
+        youtubeState: {
+          ...(currentState?.youtubeState || {
+            playlist: [],
+            currentIndex: -1,
+            currentVideoId: null
+          }),
+          isYoutubeMode: false
+        }
       });
     });
   }
@@ -215,10 +230,25 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     let newVolume = Math.min(Math.max(audio.volume + change, 0), 1);
     audio.volume = newVolume;
     this.volume = newVolume;
+
+    // 獲取當前完整狀態，確保包含 youtubeState
+    let currentState: RadioState | undefined;
+    this.radioSync.radioState$.pipe(take(1)).subscribe(state => {
+      currentState = state;
+    });
+
     this.radioSync.updateState({
       currentStation: this.currentStation,
       isPlaying: this.isPlaying,
-      volume: this.volume
+      volume: this.volume,
+      youtubeState: {
+        ...(currentState?.youtubeState || {
+          playlist: [],
+          currentIndex: -1,
+          currentVideoId: null
+        }),
+        isYoutubeMode: false
+      }
     });
     this.cdr.detectChanges();
   }

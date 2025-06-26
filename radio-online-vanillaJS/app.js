@@ -428,16 +428,25 @@ function setupSocketListeners() {
 
 // 新增處理狀態更新的函數
 function handleStateUpdate(state) {
-    // 檢查是否需要切換模式
-    var needModeSwitch = (state.youtubeState && state.youtubeState.isYoutubeMode) !== isYoutubeMode;
-    
-    // 同步音量
+    // 檢查是否需要切換模式 - 更智能的判斷
+    // 只有當明確指定 YouTube 模式時才切換，避免因為缺少 youtubeState 而誤判
+    var incomingYoutubeMode = state.youtubeState && state.youtubeState.isYoutubeMode === true;
+    var needModeSwitch = incomingYoutubeMode !== isYoutubeMode;
+
+    console.log('模式切換檢查:', {
+        currentMode: isYoutubeMode ? 'YouTube' : 'Radio',
+        incomingYoutubeMode: incomingYoutubeMode,
+        needModeSwitch: needModeSwitch,
+        hasYoutubeState: !!state.youtubeState
+    });
+
+    // 同步音量 - 這個操作不應該中斷播放
     if (state.volume !== undefined && !isNaN(state.volume)) {
         // 更新滑桿值和樣式
         volumeSlider.value = state.volume * 100;
         volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
-        
-        // 更新播放器音量
+
+        // 更新播放器音量，但不中斷播放
         if (window.videoPlayer) {
             window.videoPlayer.volume(state.volume);
             window.videoPlayer.muted(state.volume === 0);
@@ -450,7 +459,7 @@ function handleStateUpdate(state) {
         }
     }
 
-    if (state.youtubeState && state.youtubeState.isYoutubeMode) {
+    if (incomingYoutubeMode) {
         // 強制切換到 YouTube 模式
         isYoutubeMode = true;
         
@@ -541,13 +550,18 @@ function handleStateUpdate(state) {
         }
         controlCard.style.display = 'block';
 
-        // 檢查是否需要切換電台或從 YouTube 模式切換回電台
-        if (!currentStation || currentStation.id !== state.currentStation.id || needModeSwitch) {
-            // 先同步音量滑桿
-            if (state.volume !== undefined && !isNaN(state.volume)) {
-                volumeSlider.value = state.volume * 100;
-                volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
-            }
+        // 檢查是否真的需要切換電台或從 YouTube 模式切換回電台
+        // 只有在電台真的不同或需要模式切換時才中斷播放
+        var needStationSwitch = !currentStation || currentStation.id !== state.currentStation.id;
+
+        if (needStationSwitch || needModeSwitch) {
+            console.log('需要切換電台或模式:', {
+                needStationSwitch: needStationSwitch,
+                needModeSwitch: needModeSwitch,
+                currentStationId: currentStation ? currentStation.id : null,
+                newStationId: state.currentStation.id
+            });
+
             // 停止當前播放的音源
             if (window.videoPlayer) {
                 try {
@@ -565,7 +579,7 @@ function handleStateUpdate(state) {
 
             currentStation = state.currentStation;
             currentStationName.textContent = state.currentStation.name;
-            
+
             // 更新音源並播放
             if (state.currentStation.url.endsWith('m3u8')) {
                 playHLSStream(state.currentStation.url);
@@ -579,9 +593,9 @@ function handleStateUpdate(state) {
                     oldPlayer.parentNode.replaceChild(audioElement, oldPlayer);
                 }
                 audioPlayer = audioElement;
-                
+
                 audioPlayer.src = state.currentStation.url;
-                // 這裡用 volumeSlider.value 設定音量
+                // 設定音量
                 const currentVolume = volumeSlider.value / 100;
                 audioPlayer.volume = currentVolume;
                 audioPlayer.muted = currentVolume === 0;
@@ -591,6 +605,11 @@ function handleStateUpdate(state) {
                     });
                 }
             }
+        } else {
+            // 如果不需要切換電台，只更新電台資訊但不中斷播放
+            console.log('只更新電台資訊，不中斷播放');
+            currentStation = state.currentStation;
+            currentStationName.textContent = state.currentStation.name;
         }
 
         // 更新電台列表選中狀態

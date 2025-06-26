@@ -16,6 +16,7 @@
 
 // YouTube 播放器容器 - 根據模式調整大小和位置
 .youtube-player-container {
+  position: relative; // 為覆蓋層提供定位基準
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   &.mini-mode {
@@ -47,6 +48,38 @@
 
     @media (max-width: 768px) {
       border-radius: 8px;
+    }
+  }
+
+  // 播放器佔位符樣式
+  .player-placeholder {
+    background: #000;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    .placeholder-content {
+      text-align: center;
+      color: #ccc;
+    }
+  }
+
+  // 播放器覆蓋層樣式（當播放清單為空時顯示）
+  .player-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+
+    .placeholder-content {
+      text-align: center;
+      color: #ccc;
     }
   }
 

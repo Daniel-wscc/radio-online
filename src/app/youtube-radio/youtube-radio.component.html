@@ -151,12 +151,14 @@
 </div>
 
 <!-- 單一 YouTube 播放器 - 通過 CSS 控制位置 -->
-@if(currentVideoId) {
-  <div class="youtube-player-container"
-       [class.mini-mode]="!isPlayerExpanded"
-       [class.expanded-mode]="isPlayerExpanded">
+<div class="youtube-player-container"
+     [class.mini-mode]="!isPlayerExpanded"
+     [class.expanded-mode]="isPlayerExpanded">
+
+  @if(currentVideoId || playlist.length > 0) {
+    <!-- 有影片時顯示 YouTube 播放器 -->
     <youtube-player
-      [videoId]="currentVideoId"
+      [videoId]="currentVideoId || playlist[0].id"
       [width]="videoWidth || 640"
       [height]="videoHeight || 360"
       [playerVars]="playerConfig"
@@ -164,11 +166,21 @@
       (ready)="onPlayerReady($event)"
       #youtubePlayer
     ></youtube-player>
-  </div>
-}
+  } @else {
+    <!-- 沒有播放清單時的佔位符 -->
+    <div class="player-placeholder"
+         [style.width.px]="videoWidth || 640"
+         [style.height.px]="videoHeight || 360">
+      <div class="placeholder-content">
+        <i class="bi bi-youtube" style="font-size: 4rem; color: #ccc;"></i>
+        <p class="text-muted mt-3">請添加影片到播放清單</p>
+      </div>
+    </div>
+  }
+</div>
 
 <!-- 底部播放條 -->
-@if(currentVideoId) {
+@if(playlist.length > 0) {
   <div class="player-bar" [class.expanded]="isPlayerExpanded">
     <!-- 迷你播放器 (收起狀態) -->
     @if(!isPlayerExpanded) {

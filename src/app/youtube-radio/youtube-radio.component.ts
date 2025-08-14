@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { YouTubePlayer, YouTubePlayerModule } from '@angular/youtube-player';
 import { DragDropModule } from '@angular/cdk/drag-drop';
+import { ScrollingModule } from '@angular/cdk/scrolling';
 import { RadioSyncService, RadioState } from '../services/radio-sync.service';
 import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
 import { ChatService } from '../services/chat.service';
@@ -19,6 +20,7 @@ import { take } from 'rxjs/operators';
     FormsModule,
     YouTubePlayerModule,
     DragDropModule,
+    ScrollingModule,
     ThemeSwitcherComponent
   ],
   standalone: true

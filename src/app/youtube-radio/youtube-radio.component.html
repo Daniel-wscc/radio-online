@@ -1,4 +1,4 @@
-<div class="content-container w-full h-full flex flex-col gap-4 p-4 bg-base-200" [class.has-player]="currentVideoId">
+<div cdkScrollable id="main-playlist-scroll-container" class="content-container w-full h-full flex flex-col gap-4 p-4 bg-base-200" [class.has-player]="currentVideoId">
 
   <!-- 主題切換選單 -->
   <div class="w-full flex justify-end">
@@ -330,13 +330,14 @@
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
                     </button>
                   </div>
-                  <div class="flex-1 overflow-y-auto divide-y divide-base-300" cdkDropList (cdkDropListDropped)="onDrop($event)">
+                  <div cdkScrollable class="flex-1 overflow-y-auto divide-y divide-base-300" cdkDropList (cdkDropListDropped)="onDrop($event)">
                     @for (video of playlist; track video.id; let i = $index) {
                       <div class="py-3 flex justify-between items-center text-base-content transition rounded-xl hover:bg-base-200"
                           [class.bg-primary]="i === currentIndex"
                           [class.text-primary-content]="i === currentIndex"
                           [class.hover:bg-primary-focus]="i === currentIndex"
                           cdkDrag
+                          [cdkDragBoundary]="'#expanded-playlist-scroll-container'"
                           [cdkDragDisabled]="i === currentIndex">
                         <div class="flex items-center gap-3 flex-1 min-w-0">
                           <span class="cursor-move flex-shrink-0" cdkDragHandle>

@@ -49,6 +49,9 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
   isChatOpen = false;
   isPlayerExpanded = false;  // 播放器展開狀態
   isPlaying = false;  // 播放狀態
+  volume = 1; // 音量 0-1
+  isMuted = false; // 靜音狀態
+  Math = Math; // 讓模板可以使用Math函數
 
   // 播放清單管理相關
   availablePlaylists: any[] = [];
@@ -125,6 +128,28 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
           if (youtubeState.isYoutubeMode && state.isPlaying && this.currentVideoId && this.isPlayerReady && !this.isComponentInitializing) {
             console.log('播放狀態更新觸發播放');
             this.safePlayVideo();
+          }
+
+          // 同步音量狀態
+          if (typeof state.volume === 'number' && state.volume !== this.volume) {
+            this.volume = state.volume;
+            this.isMuted = this.volume === 0;
+
+            // 如果播放器已準備就緒，立即應用音量設置
+            const currentPlayer = this.getCurrentPlayer();
+            if (currentPlayer && this.isPlayerReady) {
+              try {
+                currentPlayer.setVolume(this.volume * 100);
+                if (this.isMuted) {
+                  currentPlayer.mute();
+                } else {
+                  currentPlayer.unMute();
+                }
+                console.log('同步音量到YouTube播放器:', this.volume * 100, '靜音:', this.isMuted);
+              } catch (error) {
+                console.error('同步音量失敗:', error);
+              }
+            }
           }
 
           this.cdr.detectChanges();
@@ -499,6 +524,17 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
     this.isPlayerReady = true;
     console.log('YouTube 播放器已準備就緒，當前影片ID:', this.currentVideoId, '播放狀態:', this.isPlaying);
 
+    // 設置初始音量
+    try {
+      event.target.setVolume(this.volume * 100);
+      if (this.isMuted) {
+        event.target.mute();
+      }
+      console.log('設置YouTube播放器音量:', this.volume * 100, '靜音:', this.isMuted);
+    } catch (error) {
+      console.error('設置初始音量失敗:', error);
+    }
+
     // 確保播放清單存在且有內容
     if (this.playlist.length === 0) {
       console.log('播放器已準備就緒，但沒有播放清單');
@@ -730,6 +766,69 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
       return '請選擇要播放的影片';
     }
     return '請添加影片到播放清單';
+  }
+
+  // 音量控制方法
+  onVolumeChange(value: number) {
+    this.volume = value / 100;
+    this.isMuted = this.volume === 0;
+
+    const currentPlayer = this.getCurrentPlayer();
+    if (currentPlayer && this.isPlayerReady) {
+      try {
+        currentPlayer.setVolume(this.volume * 100);
+        if (this.isMuted) {
+          currentPlayer.mute();
+        } else {
+          currentPlayer.unMute();
+        }
+      } catch (error) {
+        console.error('設置音量失敗:', error);
+      }
+    }
+
+    // 同步音量狀態到伺服器
+    this.syncVolumeState();
+  }
+
+  toggleMute() {
+    this.isMuted = !this.isMuted;
+
+    const currentPlayer = this.getCurrentPlayer();
+    if (currentPlayer && this.isPlayerReady) {
+      try {
+        if (this.isMuted) {
+          currentPlayer.mute();
+        } else {
+          currentPlayer.unMute();
+        }
+      } catch (error) {
+        console.error('切換靜音失敗:', error);
+      }
+    }
+
+    // 同步音量狀態到伺服器
+    this.syncVolumeState();
+  }
+
+  private syncVolumeState() {
+    // 獲取當前完整狀態
+    let currentState: any;
+    this.radioSync.radioState$.pipe(take(1)).subscribe(state => {
+      currentState = state;
+    });
+
+    // 更新狀態，包含音量信息
+    this.radioSync.updateState({
+      isPlaying: this.isPlaying,
+      volume: this.isMuted ? 0 : this.volume,
+      youtubeState: {
+        isYoutubeMode: true,
+        playlist: this.playlist,
+        currentIndex: this.currentIndex,
+        currentVideoId: this.currentVideoId
+      }
+    });
   }
 
   // 導航到播放清單管理頁面

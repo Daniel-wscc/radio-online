@@ -193,7 +193,7 @@
             <div class="mini-player-title">{{ getCurrentVideoTitle() }}</div>
           </div>
         </div>
-        <div class="mini-player-controls" (click)="$event.stopPropagation()">
+        <div class="mini-player-controls flex-nowrap" (click)="$event.stopPropagation()">
           <button class="btn-control" (click)="playPrevious()" [disabled]="currentIndex <= 0" title="上一首">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
@@ -213,6 +213,29 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
             </svg>
           </button>
+          <!-- 音量控制 -->
+          <div class="volume-control flex items-center gap-2">
+            <button class="btn-control" (click)="toggleMute()" title="靜音/取消靜音">
+              @if(volume === 0 || isMuted) {
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clip-rule="evenodd" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                </svg>
+              } @else {
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                </svg>
+              }
+            </button>
+            <input type="range"
+                   min="0"
+                   max="100"
+                   class="range range-primary range-xs flex-1"
+                   [ngModel]="volume * 100"
+                   (ngModelChange)="onVolumeChange($event)"
+                   title="音量: {{Math.round(volume * 100)}}%">
+          </div>
+
           <button class="btn-control" (click)="togglePlayer()" title="展開播放器">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 14l5-5 5 5" />
@@ -269,6 +292,30 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                 </svg>
               </button>
+            </div>
+
+            <!-- 展開播放器音量控制 -->
+            <div class="expanded-volume-control flex items-center gap-4 flex-nowrap">
+              <button class="btn-control-lg" (click)="toggleMute()" title="靜音/取消靜音">
+                @if(volume === 0 || isMuted) {
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clip-rule="evenodd" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                  </svg>
+                } @else {
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  </svg>
+                }
+              </button>
+              <input type="range"
+                     min="0"
+                     max="100"
+                     class="range range-primary flex-1"
+                     [ngModel]="volume * 100"
+                     (ngModelChange)="onVolumeChange($event)"
+                     title="音量: {{Math.round(volume * 100)}}%">
+              <span class="volume-text w-12 text-right">{{Math.round(volume * 100)}}%</span>
             </div>
           </div>
 

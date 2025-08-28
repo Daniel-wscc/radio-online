@@ -86,7 +86,7 @@ export class PlaylistDetailComponent implements OnInit, OnDestroy {
           this.playlist = data.playlist;
           this.items = data.items || [];
         }
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       })
     );
 
@@ -95,7 +95,7 @@ export class PlaylistDetailComponent implements OnInit, OnDestroy {
       this.radioSync.onSongRemovedFromPlaylist().subscribe(result => {
         if (result.success) {
           this.items = this.items.filter(item => item.id !== result.itemId);
-          this.cdr.detectChanges();
+          this.cdr.markForCheck();
         } else {
           console.error('移除歌曲失敗:', result.error);
           alert('移除歌曲失敗: ' + result.error);
@@ -122,7 +122,7 @@ export class PlaylistDetailComponent implements OnInit, OnDestroy {
           this.closeAddSongModal();
         }
 
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       })
     );
   }
@@ -269,10 +269,10 @@ export class PlaylistDetailComponent implements OnInit, OnDestroy {
     // 5 秒後自動隱藏（批量操作結果需要更長時間顯示）
     setTimeout(() => {
       this.showToast = false;
-      this.cdr.detectChanges();
+      this.cdr.markForCheck();
     }, 5000);
 
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 
   private extractVideoId(url: string): string {

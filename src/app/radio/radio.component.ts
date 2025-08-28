@@ -144,7 +144,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
       // 單獨處理音量變化
       if (typeof state.volume === 'number') {
         this.volume = state.volume;
-        if (!this.isYoutubeMode && this.audioPlayer?.nativeElement) {
+        if (this.audioPlayer?.nativeElement) {
           this.audioPlayer.nativeElement.volume = this.volume;
         }
       }
@@ -154,7 +154,8 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     this.radioSync.onlineUsers$.subscribe(count => {
       console.log('組件收到線上人數更新:', count, '當前值:', this.onlineUsers);
       this.onlineUsers = count;
-      this.cdr.detectChanges();
+      // 使用 markForCheck 代替 detectChanges，避免在變更檢測週期外調用
+      this.cdr.markForCheck();
     });
 
     this.volumeChange$.pipe(
@@ -166,17 +167,14 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
         currentState = state;
       });
 
-      // 發送完整狀態，只更新音量，並強制 isYoutubeMode: false
-      this.radioSync.updateState({
+      // 使用輕量級狀態更新，不發送播放清單
+      this.radioSync.updateLightweightState({
         currentStation: this.currentStation,
         isPlaying: this.isPlaying,
         volume: vol,
         youtubeState: {
-          ...(currentState?.youtubeState || {
-            playlist: [],
-            currentIndex: -1,
-            currentVideoId: null
-          }),
+          currentIndex: currentState?.youtubeState?.currentIndex || -1,
+          currentVideoId: currentState?.youtubeState?.currentVideoId || null,
           isYoutubeMode: false
         }
       });
@@ -191,18 +189,18 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
       // 添加播放状态监听器
       this.audioPlayer.nativeElement.addEventListener('play', () => {
         this.isPlaying = true;
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       });
 
       this.audioPlayer.nativeElement.addEventListener('pause', () => {
         this.isPlaying = false;
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       });
 
       this.audioPlayer.nativeElement.addEventListener('timeupdate', () => {
         this.currentTime = this.audioPlayer.nativeElement.currentTime;
         this.duration = this.audioPlayer.nativeElement.duration || 0;
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       });
     } else {
       console.error('Audio player not found');
@@ -212,12 +210,13 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     // 延迟请求当前状态，确保Socket连接已建立
     setTimeout(() => {
       console.log('組件初始化完成，請求當前狀態和線上人數');
-      this.radioSync.requestCurrentState();
-      this.radioSync.requestOnlineUsers();
-    }, 1000);
+          this.radioSync.requestCurrentState();
+    this.radioSync.requestOnlineUsers();
+  }, 1000);
 
-    this.cdr.detectChanges();
-  }
+  // 移除在 ngAfterViewInit 中的 detectChanges 調用
+  // this.cdr.detectChanges(); // 這會導致 ASSERTION ERROR
+}
 
   // 簡化初始化電台列表方法
   private initializeStations() {
@@ -226,9 +225,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   }
 
   adjustVolume(change: number) {
-    const audio = this.audioPlayer.nativeElement;
-    let newVolume = Math.min(Math.max(audio.volume + change, 0), 1);
-    audio.volume = newVolume;
+    let newVolume = Math.min(Math.max(this.volume + change, 0), 1);
     this.volume = newVolume;
 
     // 獲取當前完整狀態，確保包含 youtubeState
@@ -237,20 +234,18 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
       currentState = state;
     });
 
-    this.radioSync.updateState({
+    // 使用輕量級狀態更新，不發送播放清單
+    this.radioSync.updateLightweightState({
       currentStation: this.currentStation,
       isPlaying: this.isPlaying,
       volume: this.volume,
       youtubeState: {
-        ...(currentState?.youtubeState || {
-          playlist: [],
-          currentIndex: -1,
-          currentVideoId: null
-        }),
+        currentIndex: currentState?.youtubeState?.currentIndex || -1,
+        currentVideoId: currentState?.youtubeState?.currentVideoId || null,
         isYoutubeMode: false
       }
     });
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 
   playStation(url: string, stationName: string) {

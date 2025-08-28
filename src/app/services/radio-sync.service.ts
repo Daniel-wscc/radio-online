@@ -8,7 +8,7 @@ export interface RadioState {
   volume: number;
   isMuted?: boolean;
   youtubeState?: {
-    playlist: Array<{ id: string, title?: string }>;
+    playlist?: Array<{ id: string, title?: string }>; // 使播放清單變為可選
     currentIndex: number;
     currentVideoId: string | null;
     isYoutubeMode: boolean;
@@ -92,6 +92,19 @@ export class RadioSyncService {
   // 更新廣播狀態
   updateState(state: RadioState) {
     this.socket.emit('updateRadioState', state);
+  }
+
+  // 新增：發送輕量級狀態更新（不包含播放清單）
+  updateLightweightState(state: Partial<RadioState>) {
+    // 確保不包含播放清單
+    const lightweightState = {
+      ...state,
+      youtubeState: state.youtubeState ? {
+        ...state.youtubeState,
+        playlist: undefined // 不發送播放清單
+      } : undefined
+    };
+    this.socket.emit('updateRadioState', lightweightState);
   }
 
   // 新增播放清單

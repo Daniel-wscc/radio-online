@@ -6,7 +6,7 @@ import { instrument } from '@socket.io/admin-ui';
 import Database from 'better-sqlite3';
 import fs from 'fs';
 
-console.log('=== 正在啟動 radio-online-server ===');
+console.log('=== 正在啟動 radio-online-server 1.0.0 ===');
 
 // 確保資料目錄存在
 const dataDir = '/app/data';
@@ -206,7 +206,25 @@ io.on('connection', (socket) => {
 
   // 處理狀態更新
   socket.on('updateRadioState', (state) => {
-    currentRadioState = state;
+    // 合併狀態而不是完全覆蓋，確保不會丟失音量等資訊
+    currentRadioState = {
+      ...currentRadioState,
+      ...state,
+      youtubeState: state.youtubeState ? {
+        ...currentRadioState.youtubeState,
+        ...state.youtubeState,
+        // 如果收到的狀態中播放清單為空或未定義，保持現有的播放清單
+        playlist: (state.youtubeState.playlist && state.youtubeState.playlist.length > 0) 
+          ? state.youtubeState.playlist 
+          : currentRadioState.youtubeState.playlist
+      } : currentRadioState.youtubeState
+    };
+
+    console.log('合併狀態更新:', {
+      volume: currentRadioState.volume,
+      isPlaying: currentRadioState.isPlaying,
+      youtubeState: currentRadioState.youtubeState
+    });
 
     // 如果有 YouTube 狀態，保存到資料庫
     if (state.youtubeState) {
@@ -233,7 +251,7 @@ io.on('connection', (socket) => {
     }
 
     // 廣播給所有其他使用者
-    socket.broadcast.emit('radioStateUpdate', state);
+    socket.broadcast.emit('radioStateUpdate', currentRadioState);
   });
 
   // 處理聊天訊息

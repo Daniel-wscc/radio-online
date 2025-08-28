@@ -54,7 +54,7 @@ export class PlaylistManagerComponent implements OnInit, OnDestroy {
         } else if (data.error) {
           console.error('載入播放清單失敗:', data.error);
         }
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       })
     );
 
@@ -64,7 +64,7 @@ export class PlaylistManagerComponent implements OnInit, OnDestroy {
         if (result.success) {
           this.playlists.unshift(result.playlist);
           this.closeCreateModal();
-          this.cdr.detectChanges();
+          this.cdr.markForCheck();
         } else {
           console.error('創建播放清單失敗:', result.error);
           alert('創建播放清單失敗: ' + result.error);
@@ -77,7 +77,7 @@ export class PlaylistManagerComponent implements OnInit, OnDestroy {
       this.radioSync.onPlaylistDeleted().subscribe(result => {
         if (result.success) {
           this.playlists = this.playlists.filter(p => p.id !== result.playlistId);
-          this.cdr.detectChanges();
+          this.cdr.markForCheck();
         } else {
           console.error('刪除播放清單失敗:', result.error);
           alert('刪除播放清單失敗: ' + result.error);

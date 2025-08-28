@@ -134,10 +134,14 @@ function createTagsHtml(tags) {
 }
 
 // 設置事件監聽器
+// 音量防抖變數
+var volumeDebounceTimer = null;
+var volumeDebounceDelay = 300; // 300ms 防抖延遲
+
 function setupEventListeners() {
     // 音量控制
     volumeSlider.addEventListener('input', function(e) {
-        var volume = e.target.value / 100;
+        var volume = e.target.value / 10; // 改為 0-10 範圍，除以 10 得到 0-1
 
         // YouTube模式下使用YouTube API控制音量
         if (isYoutubeMode && youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
@@ -166,14 +170,20 @@ function setupEventListeners() {
             audioPlayer.muted = volume === 0;
         }
 
-        // 更新滑桿顏色
-        e.target.style.setProperty('--value', e.target.value + '%');
-        // 發送音量更新到伺服器
-        updateRadioState();
+        // 更新滑桿顏色（將 0-10 的值轉換為 0-100 的百分比）
+        e.target.style.setProperty('--value', (e.target.value * 10) + '%');
+        
+        // 使用防抖機制發送音量更新到伺服器
+        if (volumeDebounceTimer) {
+            clearTimeout(volumeDebounceTimer);
+        }
+        volumeDebounceTimer = setTimeout(function() {
+            updateRadioState();
+        }, volumeDebounceDelay);
     });
 
-    // 初始化滑桿顏色
-    volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
+    // 初始化滑桿顏色（將 0-10 的值轉換為 0-100 的百分比）
+    volumeSlider.style.setProperty('--value', (volumeSlider.value * 10) + '%');
 
     // 電台選擇
     stationList.addEventListener('click', function(e) {
@@ -287,7 +297,7 @@ function playStation(station) {
             }
             audioPlayer.src = station.url;
             // 設置音量
-            const currentVolume = volumeSlider.value / 100;
+            const currentVolume = volumeSlider.value / 10;
             audioPlayer.volume = currentVolume;
             audioPlayer.muted = currentVolume === 0;
             audioPlayer.play();
@@ -336,7 +346,7 @@ function playHLSStream(url) {
         }
 
         // 設置初始音量
-        const currentVolume = volumeSlider.value / 100;
+        const currentVolume = volumeSlider.value / 10;
         audioElement.volume = currentVolume;
         audioElement.muted = currentVolume === 0;
 
@@ -393,10 +403,13 @@ function playHLSStream(url) {
 
 // 更新廣播狀態
 function updateRadioState() {
+    // 獲取當前音量值
+    var currentVolume = volumeSlider.value / 10; // 從滑桿值計算音量
+    
     var state = {
         currentStation: currentStation,
         isPlaying: !audioPlayer.paused,
-        volume: audioPlayer.volume,
+        volume: currentVolume,
         youtubeState: {
             isYoutubeMode: isYoutubeMode,
             playlist: playlist,
@@ -461,9 +474,9 @@ function handleStateUpdate(state) {
 
     // 同步音量 - 這個操作不應該中斷播放
     if (state.volume !== undefined && !isNaN(state.volume)) {
-        // 更新滑桿值和樣式
-        volumeSlider.value = state.volume * 100;
-        volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
+        // 更新滑桿值和樣式（新的範圍是 0-10）
+        volumeSlider.value = state.volume * 10;
+        volumeSlider.style.setProperty('--value', (volumeSlider.value * 10) + '%');
 
         // 更新播放器音量，但不中斷播放
         if (isYoutubeMode && youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
@@ -627,7 +640,7 @@ function handleStateUpdate(state) {
 
                 audioPlayer.src = state.currentStation.url;
                 // 設定音量
-                const currentVolume = volumeSlider.value / 100;
+                const currentVolume = volumeSlider.value / 10;
                 audioPlayer.volume = currentVolume;
                 audioPlayer.muted = currentVolume === 0;
                 if (state.isPlaying) {
@@ -659,8 +672,8 @@ function handleInitialState(state) {
     // 設置音量
     if (state.volume !== undefined && !isNaN(state.volume)) {
         audioPlayer.volume = state.volume;
-        volumeSlider.value = state.volume * 100;
-        volumeSlider.style.setProperty('--value', volumeSlider.value + '%');
+        volumeSlider.value = state.volume * 10;
+        volumeSlider.style.setProperty('--value', (volumeSlider.value * 10) + '%');
     }
 
     // 處理初始電台
@@ -770,7 +783,7 @@ function onPlayerReady(event) {
 
     // 設置初始音量
     try {
-        var currentVolume = volumeSlider.value / 100;
+        var currentVolume = volumeSlider.value / 10;
         event.target.setVolume(currentVolume * 100);
         if (currentVolume === 0) {
             event.target.mute();

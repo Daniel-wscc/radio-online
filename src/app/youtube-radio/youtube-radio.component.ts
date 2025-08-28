@@ -1,4 +1,4 @@
-import { Component, OnInit, ViewChild, ChangeDetectorRef, AfterViewInit } from '@angular/core';
+import { Component, OnInit, ViewChild, ChangeDetectorRef, AfterViewInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -10,6 +10,8 @@ import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
 import { ChatService } from '../services/chat.service';
 import { ThemeSwitcherComponent } from '../shared/theme-switcher/theme-switcher.component';
 import { take } from 'rxjs/operators';
+import { Subject } from 'rxjs';
+import { debounceTime } from 'rxjs/operators';
 
 @Component({
   selector: 'app-youtube-radio',
@@ -25,7 +27,7 @@ import { take } from 'rxjs/operators';
   ],
   standalone: true
 })
-export class YoutubeRadioComponent implements OnInit, AfterViewInit {
+export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('youtubePlayer', { static: false }) youtubePlayer!: YouTubePlayer;
 
   urlInput: string = '';
@@ -55,6 +57,10 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
   isMuted = false; // 靜音狀態
   Math = Math; // 讓模板可以使用Math函數
 
+  // 音量防抖相關
+  private volumeChangeSubject = new Subject<number>();
+  private volumeDebounceTime = 300; // 300ms 防抖延遲
+
   // 播放清單管理相關
   availablePlaylists: any[] = [];
   playlistThumbnails: { [playlistId: number]: string[] } = {}; // 儲存播放清單縮圖
@@ -80,6 +86,13 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
     private cdr: ChangeDetectorRef,
     private router: Router
   ) {
+    // 設置音量防抖訂閱
+    this.volumeChangeSubject.pipe(
+      debounceTime(this.volumeDebounceTime)
+    ).subscribe((volume: number) => {
+      this.applyVolumeChange(volume);
+    });
+
     // 訂閱狀態更新
     this.radioSync.radioState$.subscribe((state: RadioState) => {
       if (state.youtubeState) {
@@ -154,7 +167,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
             }
           }
 
-          this.cdr.detectChanges();
+          this.cdr.markForCheck();
         });
       }
     });
@@ -162,7 +175,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
     // 監聽聊天室狀態
     this.chatService.chatVisible$.subscribe(visible => {
       this.isChatOpen = visible;
-      this.cdr.detectChanges();
+      this.cdr.markForCheck();
     });
 
     // 監聽從伺服器載入的播放清單
@@ -199,7 +212,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
           this.isLoadingPlaylist = false;
         }, 1000);
 
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       }
     });
 
@@ -209,7 +222,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
         this.availablePlaylists = data;
         // 載入每個播放清單的縮圖
         this.loadPlaylistThumbnails();
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       }
     });
 
@@ -234,7 +247,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
         );
         this.playlistThumbnails[playlistId] = thumbnails;
         this.playlistItemCounts[playlistId] = data.items.length;
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       }
     });
   }
@@ -287,7 +300,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
     // 設定播放器的基本尺寸
     this.videoWidth = 640;
     this.videoHeight = 360;
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
 
     // 重新計算播放器位置
     setTimeout(() => {
@@ -326,7 +339,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
       this.urlInput = '';
 
       // 觸發變更檢測，確保播放器能正確渲染
-      this.cdr.detectChanges();
+      this.cdr.markForCheck();
 
       // 如果播放清單原本為空，現在有內容了，需要等待播放器初始化
       if (wasEmpty && this.playlist.length > 0) {
@@ -366,7 +379,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
     this.isPlayerReady = false; // 重置播放器狀態
 
     // 觸發變更檢測，確保 UI 正確更新
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
 
     this.syncYoutubeState();
 
@@ -394,8 +407,8 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
       } else {
         console.log('播放器尚未準備就緒，等待播放器初始化完成');
       }
-      // 切換播放索引時不需要發送 addPlaylist
-      this.syncYoutubeState(false);
+      // 切換播放索引時只同步播放狀態，不發送播放清單
+      this.syncPlaybackState();
     }
   }
 
@@ -412,8 +425,8 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
     if (this.isPlayerReady) {
       this.safePlayVideo();
     }
-    // 切換影片時不需要發送 addPlaylist
-    this.syncYoutubeState(false);
+    // 切換影片時只同步播放狀態，不發送播放清單
+    this.syncPlaybackState();
   }
 
   playPrevious() {
@@ -462,11 +475,11 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
       if (this.isPlayerReady) {
         this.safePlayVideo();
       }
-      // 只在切換影片時才同步狀態，不發送 addPlaylist
-      this.syncYoutubeState(false);
+      // 只在切換影片時才同步狀態，不發送播放清單
+      this.syncPlaybackState();
     } else {
-      // 對於其他狀態變化（播放、暫停等），只更新播放狀態，不發送 addPlaylist
-      this.syncPlayingState();
+      // 對於其他狀態變化（播放、暫停等），只更新播放狀態，不發送播放清單
+      this.syncPlaybackState();
     }
   }
 
@@ -486,7 +499,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
     // 更新狀態並設置為YouTube模式
     const newState = {
       isPlaying: this.isPlaying,
-      volume: 1,
+      volume: this.isMuted ? 0 : this.volume,
       youtubeState: {
         isYoutubeMode: true,
         playlist: this.playlist,
@@ -509,7 +522,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
 
     const newState = {
       isPlaying: this.isPlaying,
-      volume: 1,
+      volume: this.isMuted ? 0 : this.volume,
       youtubeState: {
         isYoutubeMode: true,
         playlist: this.playlist,
@@ -520,6 +533,58 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
 
     console.log('發送播放狀態更新:', newState);
     this.radioSync.updateState(newState);
+  }
+
+  // 新增：只同步播放索引和影片ID，不發送播放清單
+  private syncPlaybackState() {
+    // 如果組件正在初始化，不發送狀態更新，避免中斷播放
+    if (this.isComponentInitializing) {
+      console.log('組件初始化中，跳過播放狀態更新');
+      return;
+    }
+
+    console.log('發送播放狀態更新（不含播放清單）:', {
+      isPlaying: this.isPlaying,
+      volume: this.isMuted ? 0 : this.volume,
+      currentIndex: this.currentIndex,
+      currentVideoId: this.currentVideoId
+    });
+    
+    this.radioSync.updateLightweightState({
+      isPlaying: this.isPlaying,
+      volume: this.isMuted ? 0 : this.volume,
+      youtubeState: {
+        isYoutubeMode: true,
+        currentIndex: this.currentIndex,
+        currentVideoId: this.currentVideoId
+      }
+    });
+  }
+
+  // 新增：只同步音量狀態，不發送播放清單
+  private syncVolumeState() {
+    // 如果組件正在初始化，不發送狀態更新，避免中斷播放
+    if (this.isComponentInitializing) {
+      console.log('組件初始化中，跳過音量狀態更新');
+      return;
+    }
+
+    console.log('發送音量狀態更新（不含播放清單）:', {
+      isPlaying: this.isPlaying,
+      volume: this.isMuted ? 0 : this.volume,
+      currentIndex: this.currentIndex,
+      currentVideoId: this.currentVideoId
+    });
+    
+    this.radioSync.updateLightweightState({
+      isPlaying: this.isPlaying,
+      volume: this.isMuted ? 0 : this.volume,
+      youtubeState: {
+        isYoutubeMode: true,
+        currentIndex: this.currentIndex,
+        currentVideoId: this.currentVideoId
+      }
+    });
   }
 
   onPlayerReady(event: YT.PlayerEvent) {
@@ -674,7 +739,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
     this.isPlayerExpanded = !this.isPlayerExpanded;
 
     // 觸發變更檢測以更新 CSS 類別
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
 
     // 在展開模式下，動態計算播放器位置
     setTimeout(() => {
@@ -772,24 +837,31 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
 
   // 音量控制方法
   onVolumeChange(value: number) {
-    this.volume = value / 100;
+    this.volume = value / 10; // 改為 0-10 範圍，除以 10 得到 0-1
     this.isMuted = this.volume === 0;
 
+    // 使用防抖機制
+    this.volumeChangeSubject.next(this.volume);
+  }
+
+  // 應用音量變更（防抖後執行）
+  private applyVolumeChange(volume: number) {
     const currentPlayer = this.getCurrentPlayer();
     if (currentPlayer && this.isPlayerReady) {
       try {
-        currentPlayer.setVolume(this.volume * 100);
+        currentPlayer.setVolume(volume * 100);
         if (this.isMuted) {
           currentPlayer.mute();
         } else {
           currentPlayer.unMute();
         }
+        console.log('設置YouTube音量:', volume * 100, '靜音:', this.isMuted);
       } catch (error) {
         console.error('設置音量失敗:', error);
       }
     }
 
-    // 同步音量狀態到伺服器
+    // 同步音量狀態到伺服器（不發送播放清單）
     this.syncVolumeState();
   }
 
@@ -809,28 +881,8 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
       }
     }
 
-    // 同步音量狀態到伺服器
+    // 同步音量狀態到伺服器（不發送播放清單）
     this.syncVolumeState();
-  }
-
-  private syncVolumeState() {
-    // 獲取當前完整狀態
-    let currentState: any;
-    this.radioSync.radioState$.pipe(take(1)).subscribe(state => {
-      currentState = state;
-    });
-
-    // 更新狀態，包含音量信息
-    this.radioSync.updateState({
-      isPlaying: this.isPlaying,
-      volume: this.isMuted ? 0 : this.volume,
-      youtubeState: {
-        isYoutubeMode: true,
-        playlist: this.playlist,
-        currentIndex: this.currentIndex,
-        currentVideoId: this.currentVideoId
-      }
-    });
   }
 
   // 導航到播放清單管理頁面
@@ -908,10 +960,15 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit {
     // 3 秒後自動隱藏
     setTimeout(() => {
       this.showToast = false;
-      this.cdr.detectChanges();
+      this.cdr.markForCheck();
     }, 3000);
 
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
+  }
+
+  // 組件銷毀時清理資源
+  ngOnDestroy() {
+    this.volumeChangeSubject.complete();
   }
 
 }

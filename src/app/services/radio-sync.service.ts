@@ -169,6 +169,10 @@ export class RadioSyncService {
     return this.socket.fromEvent<any>('playlistDetailLoaded');
   }
 
+  onPlaylistCleared(): Observable<any> {
+    return this.socket.fromEvent<any>('playlistCleared');
+  }
+
   // 新增歌曲到播放清單
   addSongToPlaylist(playlistId: number, videoId: string, title?: string) {
     this.socket.emit('addSongToPlaylist', { playlistId, videoId, title });

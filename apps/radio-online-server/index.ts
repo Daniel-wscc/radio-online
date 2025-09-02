@@ -6,7 +6,7 @@ import { instrument } from '@socket.io/admin-ui';
 import Database from 'better-sqlite3';
 import fs from 'fs';
 
-console.log('=== 正在啟動 radio-online-server 1.0.0 ===');
+console.log('=== 正在啟動 radio-online-server 1.0.1 ===');
 
 // 確保資料目錄存在
 const dataDir = '/app/data';
@@ -357,8 +357,25 @@ io.on('connection', (socket) => {
     try {
       const clear = db.prepare('DELETE FROM playlist');
       clear.run();
+      
+      // 同時清除記憶體中的播放清單狀態
+      currentRadioState.youtubeState.playlist = [];
+      currentRadioState.youtubeState.currentIndex = -1;
+      currentRadioState.youtubeState.currentVideoId = null;
+      
+      // 更新資料庫中的 YouTube 狀態
+      const updateYoutubeState = db.prepare(`
+        UPDATE youtube_state 
+        SET currentIndex = -1, currentVideoId = NULL, updatedAt = ?
+        WHERE id = 1
+      `);
+      updateYoutubeState.run(Date.now());
+      
+      // 廣播更新後的狀態給所有客戶端
+      io.emit('radioStateUpdate', currentRadioState);
+      
       socket.emit('playlistCleared', { success: true });
-      console.log('已清除資料庫中的播放清單');
+      console.log('已清除資料庫和記憶體中的播放清單');
     } catch (error) {
       console.error('清除資料庫播放清單時發生錯誤:', error);
       socket.emit('playlistCleared', { success: false, error: '無法清除播放清單' });

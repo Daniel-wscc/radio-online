@@ -250,6 +250,27 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
         this.cdr.markForCheck();
       }
     });
+
+    // 監聽播放清單清除事件
+    this.radioSync.onPlaylistCleared().subscribe(data => {
+      if (data.success) {
+        console.log('伺服器已清除播放清單');
+        // 本地也清除播放清單
+        this.playlist = [];
+        this.currentIndex = -1;
+        this.currentVideoId = null;
+        
+        // 停止 YouTube 播放
+        if (this.youtubePlayer && this.youtubePlayer.stopVideo) {
+          this.youtubePlayer.stopVideo();
+        }
+        
+        // 更新 UI
+        this.cdr.markForCheck();
+      } else {
+        console.error('清除播放清單失敗:', data.error);
+      }
+    });
   }
 
   // 添加一個標誌來追蹤是否正在載入播放清單

@@ -1162,3 +1162,25 @@ socket.on('playlistLoaded', function(data) {
         }, 1000);
     }
 });
+
+// 監聽播放清單清除事件
+socket.on('playlistCleared', function(data) {
+    if (data.success) {
+        console.log('伺服器已清除播放清單');
+        // 本地也清除播放清單
+        playlist = [];
+        currentVideoIndex = -1;
+        lastPlaylistJson = JSON.stringify(playlist);
+        
+        // 停止 YouTube 播放
+        if (youtubePlayer && youtubePlayer.stopVideo) {
+            youtubePlayer.stopVideo();
+        }
+        
+        // 更新 UI
+        updatePlaylistUI();
+        updateNavigationButtons();
+    } else {
+        console.error('清除播放清單失敗:', data.error);
+    }
+});

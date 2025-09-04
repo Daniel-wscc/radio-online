@@ -145,18 +145,18 @@
   gap: 15px;
 }
 
-button {
-  padding: 8px 16px;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
+// button {
+//   padding: 8px 16px;
+//   background-color: #007bff;
+//   color: white;
+//   border: none;
+//   border-radius: 4px;
+//   cursor: pointer;
+// }
 
-button:hover {
-  background-color: #0056b3;
-}
+// button:hover {
+//   background-color: #0056b3;
+// }
 
 :host ::ng-deep {
   .dark-theme-card {
@@ -168,5 +168,80 @@ button:hover {
     .p-card-header, .p-card-content, .p-card-footer {
       color: white;
     }
+  }
+}
+
+// 現正播放基本樣式
+.now-playing-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+  width: 100%;
+  min-height: 1.2em;
+  position: relative;
+}
+
+// 跑馬燈效果
+.now-playing-text.marquee {
+  // color: transparent !important; // 強制隱藏原始文字
+  text-indent: -9999px; // 額外確保文字不可見
+}
+
+.now-playing-text.marquee::before {
+  content: attr(data-text);
+  position: absolute;
+  white-space: nowrap;
+  animation: marquee 10s linear infinite;
+  left: 100%;
+  color: hsl(var(--bc)); // 使用 DaisyUI 的主題文字顏色變數
+  line-height: 1.2;
+  width: max-content;
+  top: 0;
+  text-indent: 0; // 重置文字縮進
+}
+
+@keyframes marquee {
+  0% {
+    left: 50%;
+  }
+  100% {
+    left: -100%;
+  }
+}
+
+// 當不是跑馬燈時，隱藏偽元素
+.now-playing-text:not(.marquee)::before {
+  display: none;
+}
+
+// 移動裝置上的現正播放樣式調整
+@media (max-width: 767px) {
+  .now-playing-container {
+    margin-top: 0.25rem;
+    padding: 0.25rem;
+  }
+  
+  .now-playing-text {
+    font-size: 0.8rem;
+    min-height: 1em;
+  }
+  
+  .now-playing-label {
+    font-size: 0.8rem;
+  }
+}
+
+// 平板裝置上的調整
+@media (min-width: 768px) and (max-width: 1023px) {
+  .now-playing-text {
+    min-height: 1.2em;
+  }
+}
+
+// 桌面裝置上的調整
+@media (min-width: 1024px) {
+  .now-playing-text {
+    min-height: 1.2em;
   }
 }

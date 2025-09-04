@@ -14,6 +14,17 @@
         ],
         "parallel": false
       }
+    },
+    "deploy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/radio-online-server",
+        "commands": [
+          "ssh -i $env:USERPROFILE\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"cd /volume1/DEMO/server-test && sudo docker-compose down\"",
+          "ssh -i $env:USERPROFILE\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"cd /volume1/DEMO/server-test && sudo docker-compose -p test --env-file .env.test up -d --build\""
+        ],
+        "parallel": false
+      }
     }
   },
   "tags": []

@@ -113,6 +113,34 @@
         ],
         "scripts": []
       }
+    },
+    "deploy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "nx build radio-online --configuration development",
+          "ssh -i C:\\Users\\singh\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"rm -rf /volume1/DEMO/radio-online-test/*\"",
+          "cd dist/radio-online-test/browser && tar -czf - * | ssh -i C:\\Users\\singh\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"cd /volume1/DEMO/radio-online-test && tar -xzf -\""
+        ],
+        "parallel": false
+      },
+      "configurations": {
+        "development": {
+          "commands": [
+            "nx build radio-online --configuration development",
+            "ssh -i C:\\Users\\singh\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"rm -rf /volume1/DEMO/radio-online-test/*\"",
+            "cd dist/radio-online-test/browser && tar -czf - * | ssh -i C:\\Users\\singh\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"cd /volume1/DEMO/radio-online-test && tar -xzf -\""
+          ]
+        },
+        "production": {
+          "commands": [
+            "nx build radio-online --configuration production",
+            "ssh -i C:\\Users\\singh\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"rm -rf /volume1/DEMO/radio-online/*\"",
+            "cd dist/radio-online/browser && tar -czf - * | ssh -i C:\\Users\\singh\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"cd /volume1/DEMO/radio-online && tar -xzf -\""
+          ]
+        }
+      },
+      "defaultConfiguration": "development"
     }
   }
 }

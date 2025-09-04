@@ -24,7 +24,7 @@ import { debounceTime, take } from 'rxjs/operators';
     ThemeSwitcherComponent
   ],
   templateUrl: './radio.component.html',
-  // styleUrls: ['./radio.component.less']
+  styleUrls: ['./radio.component.less']
 })
 export class RadioComponent implements OnDestroy, AfterViewInit {
   @ViewChild('audioPlayer') audioPlayer!: ElementRef<HTMLAudioElement>;
@@ -86,32 +86,35 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     {
       name: 'BigBRadio Kpop Channel',
       url: 'https://antares.dribbcast.com/proxy/kpop?mp=/s',
-      tags: ['music'],
+      tags: [],
       id: 'custom_6'
     },
     {
       name: 'BigBRadio Jpop Channel',
       url: 'https://antares.dribbcast.com/proxy/jpop?mp=/s',
-      tags: ['music'],
+      tags: [],
       id: 'custom_7'
     },
     {
       name: 'BigBRadio Cpop Channel',
       url: 'https://antares.dribbcast.com/proxy/cpop?mp=/s',
-      tags: ['music'],
+      tags: [],
       id: 'custom_8'
     },
     {
       name: 'BigBRadio Apop Channel',
       url: 'https://antares.dribbcast.com/proxy/apop?mp=/s',
-      tags: ['music'],
+      tags: [],
       id: 'custom_9'
     }
   ];
 
   private currentPlayPromise: Promise<void> | null = null;
 
-
+  // 現正播放快取
+  private nowPlayingCache: { [key: string]: { data: string, timestamp: number } } = {};
+  private nowPlayingCacheTimeout = 60000; // 1分鐘快取
+  private nowPlayingUpdateInterval: any;
 
   private volumeChange$ = new Subject<number>();
 
@@ -213,6 +216,9 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
           this.radioSync.requestCurrentState();
     this.radioSync.requestOnlineUsers();
   }, 1000);
+
+    // 開始獲取 BigBRadio 現正播放資訊
+    this.startNowPlayingUpdates();
 
   // 移除在 ngAfterViewInit 中的 detectChanges 調用
   // this.cdr.detectChanges(); // 這會導致 ASSERTION ERROR
@@ -479,5 +485,159 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
       this.audioPlayer.nativeElement.pause();
       this.audioPlayer.nativeElement.src = '';
     }
+    
+    // 清理現正播放定時器
+    if (this.nowPlayingUpdateInterval) {
+      clearInterval(this.nowPlayingUpdateInterval);
+    }
+  }
+
+  // 現正播放相關方法
+  isBigBRadioStation(station: any): boolean {
+    return station.url.includes('antares.dribbcast.com/proxy/');
+  }
+
+  getNowPlayingText(station: any): string | null {
+    if (!this.isBigBRadioStation(station)) {
+      return null;
+    }
+    const channel = station.url.match(/proxy\/(\w+)/)?.[1];
+    if (!channel) return null;
+    
+    const cacheKey = `nowPlaying_${channel}`;
+    const cached = this.nowPlayingCache[cacheKey];
+    if (cached && (Date.now() - cached.timestamp) < this.nowPlayingCacheTimeout) {
+      return cached.data;
+    }
+    return null;
+  }
+
+  private startNowPlayingUpdates() {
+    // 立即更新一次
+    this.updateAllNowPlaying();
+    
+    // 每30秒更新一次
+    this.nowPlayingUpdateInterval = setInterval(() => {
+      this.updateAllNowPlaying();
+    }, 30000);
+    
+    // 如果第一次更新失敗，5秒後重試一次
+    setTimeout(() => {
+      const hasFailed = this.hasNowPlayingFailed();
+      if (hasFailed) {
+        console.log('檢測到載入失敗，5秒後重試...');
+        this.updateAllNowPlaying();
+      }
+    }, 5000);
+  }
+
+  private hasNowPlayingFailed(): boolean {
+    // 檢查是否有載入失敗的現正播放
+    return Object.values(this.nowPlayingCache).some(cache => 
+      cache.data === '載入失敗'
+    );
+  }
+
+  private updateAllNowPlaying() {
+    // 獲取所有 BigBRadio 電台
+    const bigbStations = this.customStations.filter(station => 
+      this.isBigBRadioStation(station)
+    );
+    
+    bigbStations.forEach(station => {
+      const channel = station.url.match(/proxy\/(\w+)/)?.[1];
+      if (channel) {
+        this.updateNowPlaying(channel);
+      }
+    });
+  }
+
+  private updateNowPlaying(channel: string) {
+    // 檢查快取
+    const cacheKey = `nowPlaying_${channel}`;
+    const now = Date.now();
+    
+    if (this.nowPlayingCache[cacheKey] && 
+        (now - this.nowPlayingCache[cacheKey].timestamp) < this.nowPlayingCacheTimeout) {
+      // 使用快取資料
+      console.log('使用快取資料:', channel, this.nowPlayingCache[cacheKey].data);
+      this.displayNowPlaying(channel, this.nowPlayingCache[cacheKey].data);
+      return;
+    }
+    
+    // 使用多個 CORS 代理服務來繞過 CORS 限制
+    const originalUrl = `https://bigbradio.net/stream/NowPlaying-${channel.charAt(0).toUpperCase() + channel.slice(1)}.txt`;
+    
+    // 多個代理服務列表
+    const proxyServices = [
+      'https://cors-anywhere.herokuapp.com/',
+      'https://api.allorigins.win/raw?url=',
+      'https://corsproxy.io/?',
+      'https://thingproxy.freeboard.io/fetch/',
+      'https://api.codetabs.com/v1/proxy?quest='
+    ];
+    
+    // 遞歸嘗試不同的代理服務
+    this.tryProxy(proxyServices, originalUrl, channel, 0);
+  }
+
+  private tryProxy(proxyServices: string[], originalUrl: string, channel: string, proxyIndex: number) {
+    if (proxyIndex >= proxyServices.length) {
+      // 所有代理都失敗了
+      console.error('所有代理都失敗，無法獲取 ' + channel + ' 現正播放');
+      this.displayNowPlaying(channel, '載入失敗');
+      return;
+    }
+    
+    let proxyUrl: string;
+    if (proxyIndex === 1) {
+      // allorigins 需要特殊處理
+      proxyUrl = proxyServices[proxyIndex] + encodeURIComponent(originalUrl);
+    } else if (proxyIndex === 4) {
+      // codetabs 需要特殊處理
+      proxyUrl = proxyServices[proxyIndex] + originalUrl;
+    } else {
+      proxyUrl = proxyServices[proxyIndex] + originalUrl;
+    }
+    
+    console.log('嘗試代理服務 ' + (proxyIndex + 1) + ':', proxyUrl);
+    
+    fetch(proxyUrl)
+      .then(response => {
+        if (response.ok) {
+          return response.text();
+        }
+        throw new Error('代理 ' + (proxyIndex + 1) + ' 失敗: ' + response.status);
+      })
+      .then(text => {
+        const songInfo = text.trim();
+        if (songInfo && songInfo !== '') {
+          // 儲存到快取
+          this.nowPlayingCache[`nowPlaying_${channel}`] = {
+            data: songInfo,
+            timestamp: Date.now()
+          };
+          this.displayNowPlaying(channel, songInfo);
+        } else {
+          this.displayNowPlaying(channel, '無播放資訊');
+        }
+        // 觸發變更檢測
+        this.cdr.markForCheck();
+      })
+      .catch(error => {
+        console.log('代理 ' + (proxyIndex + 1) + ' 失敗，嘗試下一個:', error);
+        // 嘗試下一個代理
+        this.tryProxy(proxyServices, originalUrl, channel, proxyIndex + 1);
+      });
+  }
+
+  private displayNowPlaying(channel: string, songInfo: string) {
+    const cacheKey = `nowPlaying_${channel}`;
+    this.nowPlayingCache[cacheKey] = {
+      data: songInfo,
+      timestamp: Date.now()
+    };
+    // 觸發變更檢測
+    this.cdr.markForCheck();
   }
 }

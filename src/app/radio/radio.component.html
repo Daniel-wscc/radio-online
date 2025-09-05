@@ -47,7 +47,7 @@
             <div class="now-playing-container mt-2 p-2 bg-primary/10 border border-primary/20 rounded-lg">
               <span class="now-playing-label text-base-content font-semibold text-sm mr-2">Now Playing:</span>
               <div class="now-playing-text text-base-content text-sm overflow-hidden"
-                   [class.marquee]="(getNowPlayingText(station)?.length || 0) > 25"
+                   [class.marquee]="(getNowPlayingText(station)?.length || 0) > 30"
                    [attr.data-text]="getNowPlayingText(station) || ''"
                    [title]="getNowPlayingText(station) || ''">
                 {{ getNowPlayingText(station) || '載入中...' }}

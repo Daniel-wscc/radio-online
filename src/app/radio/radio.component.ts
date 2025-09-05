@@ -113,7 +113,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
   // 現正播放快取
   private nowPlayingCache: { [key: string]: { data: string, timestamp: number } } = {};
-  private nowPlayingCacheTimeout = 60000; // 1分鐘快取
+  private nowPlayingCacheTimeout = 30000; // 30秒快取，與更新間隔一致
   private nowPlayingUpdateInterval: any;
 
   private volumeChange$ = new Subject<number>();
@@ -557,24 +557,26 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     const cacheKey = `nowPlaying_${channel}`;
     const now = Date.now();
     
+    // 強制更新：即使有快取也發送請求，確保資料最新
+    console.log(`開始更新 ${channel} 的現正播放資訊...`);
+    
     if (this.nowPlayingCache[cacheKey] && 
         (now - this.nowPlayingCache[cacheKey].timestamp) < this.nowPlayingCacheTimeout) {
-      // 使用快取資料
-      console.log('使用快取資料:', channel, this.nowPlayingCache[cacheKey].data);
+      // 顯示快取資料，但仍發送請求更新
+      console.log('顯示快取資料:', channel, this.nowPlayingCache[cacheKey].data);
       this.displayNowPlaying(channel, this.nowPlayingCache[cacheKey].data);
-      return;
     }
     
     // 使用多個 CORS 代理服務來繞過 CORS 限制
     const originalUrl = `https://bigbradio.net/stream/NowPlaying-${channel.charAt(0).toUpperCase() + channel.slice(1)}.txt`;
     
-    // 多個代理服務列表
+    // 多個代理服務列表 - 更新為更可靠的代理服務
     const proxyServices = [
-      'https://cors-anywhere.herokuapp.com/',
       'https://api.allorigins.win/raw?url=',
       'https://corsproxy.io/?',
+      'https://api.codetabs.com/v1/proxy?quest=',
       'https://thingproxy.freeboard.io/fetch/',
-      'https://api.codetabs.com/v1/proxy?quest='
+      'https://cors-anywhere.herokuapp.com/'
     ];
     
     // 遞歸嘗試不同的代理服務
@@ -602,8 +604,21 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     
     console.log('嘗試代理服務 ' + (proxyIndex + 1) + ':', proxyUrl);
     
-    fetch(proxyUrl)
+    // 使用 AbortController 實現超時控制
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超時
+    
+    fetch(proxyUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'text/plain',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      signal: controller.signal
+    })
       .then(response => {
+        clearTimeout(timeoutId); // 清除超時計時器
+        console.log(`代理 ${proxyIndex + 1} 回應狀態:`, response.status);
         if (response.ok) {
           return response.text();
         }
@@ -611,6 +626,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
       })
       .then(text => {
         const songInfo = text.trim();
+        console.log(`代理 ${proxyIndex + 1} 成功獲取資料:`, songInfo);
         if (songInfo && songInfo !== '') {
           // 儲存到快取
           this.nowPlayingCache[`nowPlaying_${channel}`] = {
@@ -618,6 +634,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
             timestamp: Date.now()
           };
           this.displayNowPlaying(channel, songInfo);
+          console.log(`成功更新 ${channel} 現正播放:`, songInfo);
         } else {
           this.displayNowPlaying(channel, '無播放資訊');
         }
@@ -625,7 +642,12 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
         this.cdr.markForCheck();
       })
       .catch(error => {
-        console.log('代理 ' + (proxyIndex + 1) + ' 失敗，嘗試下一個:', error);
+        clearTimeout(timeoutId); // 清除超時計時器
+        if (error.name === 'AbortError') {
+          console.log('代理 ' + (proxyIndex + 1) + ' 請求超時，嘗試下一個');
+        } else {
+          console.log('代理 ' + (proxyIndex + 1) + ' 失敗，嘗試下一個:', error.message);
+        }
         // 嘗試下一個代理
         this.tryProxy(proxyServices, originalUrl, channel, proxyIndex + 1);
       });
@@ -640,4 +662,5 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     // 觸發變更檢測
     this.cdr.markForCheck();
   }
+
 }

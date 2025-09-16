@@ -185,6 +185,28 @@ function setupEventListeners() {
     // 初始化滑桿顏色（將 0-10 的值轉換為 0-100 的百分比）
     volumeSlider.style.setProperty('--value', (volumeSlider.value * 10) + '%');
 
+    // 音量按鈕控制
+    var volumeDownBtn = document.getElementById('volumeDownBtn');
+    var volumeUpBtn = document.getElementById('volumeUpBtn');
+
+    if (volumeDownBtn) {
+        volumeDownBtn.addEventListener('click', function() {
+            var currentValue = parseFloat(volumeSlider.value);
+            var newValue = Math.max(0, currentValue - 1);
+            volumeSlider.value = newValue;
+            volumeSlider.dispatchEvent(new Event('input'));
+        });
+    }
+
+    if (volumeUpBtn) {
+        volumeUpBtn.addEventListener('click', function() {
+            var currentValue = parseFloat(volumeSlider.value);
+            var newValue = Math.min(10, currentValue + 1);
+            volumeSlider.value = newValue;
+            volumeSlider.dispatchEvent(new Event('input'));
+        });
+    }
+
     // 電台選擇
     stationList.addEventListener('click', function(e) {
         var stationItem = e.target.closest('.station-item');

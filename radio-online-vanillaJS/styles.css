@@ -60,6 +60,14 @@ body {
 .volume-control {
     width: 100%;
     padding: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.volume-control .form-range {
+    flex: 1;
+    margin: 0;
 }
 
 #youtubePlayer {
@@ -161,43 +169,116 @@ body {
     color: #ffffff;
 }
 
-/* 音量控制圖示樣式 */
-.volume-control .bi {
-    font-size: 1.5rem; /* 放大圖示 */
-    cursor: pointer;
+/* 音量控制按鈕樣式 */
+.volume-btn {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    max-width: 40px;
+    max-height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    margin: 0;
+    border: 2px solid #6c757d;
+    background-color: transparent;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    box-sizing: border-box;
 }
 
-/* 黑暗模式下的音量圖示顏色 */
-.dark-mode .volume-control .bi {
+.volume-btn:hover {
+    background-color: #6c757d;
+    border-color: #6c757d;
+    transform: scale(1.05);
+}
+
+.volume-btn:active {
+    transform: scale(0.95);
+}
+
+.volume-btn .bi {
+    font-size: 1.2rem;
+    color: #6c757d;
+}
+
+.volume-btn:hover .bi {
     color: #ffffff;
+}
+
+/* 黑暗模式下的音量按鈕 */
+.dark-mode .volume-btn {
+    border-color: #ffffff;
+    background-color: transparent;
+}
+
+.dark-mode .volume-btn:hover {
+    background-color: #ffffff;
+    border-color: #ffffff;
+}
+
+.dark-mode .volume-btn .bi {
+    color: #ffffff;
+}
+
+.dark-mode .volume-btn:hover .bi {
+    color: #1a1a1a;
 }
 
 /* 音量滑桿樣式 */
 .form-range {
-    height: 8px;
+    height: 12px;
     -webkit-appearance: none;
+    appearance: none;
     background: transparent;
 }
 
 .form-range::-webkit-slider-runnable-track {
     width: 100%;
-    height: 8px;
+    height: 12px;
     background: linear-gradient(to right, #198754 var(--value, 0%), #dee2e6 var(--value, 0%));
-    border-radius: 4px;
+    border-radius: 6px;
 }
 
 .form-range::-webkit-slider-thumb {
     -webkit-appearance: none;
-    margin-top: -4px;
-    width: 16px;
-    height: 16px;
+    margin-top: -6px;
+    width: 24px;
+    height: 24px;
     background: #198754;
     border-radius: 50%;
     cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Firefox 瀏覽器支援 */
+.form-range::-moz-range-track {
+    width: 100%;
+    height: 12px;
+    background: linear-gradient(to right, #198754 var(--value, 0%), #dee2e6 var(--value, 0%));
+    border-radius: 6px;
+    border: none;
+}
+
+.form-range::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    background: #198754;
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 /* 黑暗模式下的音量滑桿 */
 .dark-mode .form-range::-webkit-slider-runnable-track {
+    background: linear-gradient(to right, #198754 var(--value, 0%), #4a4a4a var(--value, 0%));
+}
+
+.dark-mode .form-range::-moz-range-track {
     background: linear-gradient(to right, #198754 var(--value, 0%), #4a4a4a var(--value, 0%));
 }
 

@@ -48,9 +48,13 @@
                         <div class="card-body">
                             <!-- 音量控制 -->
                             <div class="volume-control d-flex align-items-center gap-2">
-                                <i class="bi bi-volume-down"></i>
+                                <button class="btn btn-outline-secondary volume-btn" id="volumeDownBtn">
+                                    <i class="bi bi-chevron-left"></i>
+                                </button>
                                 <input type="range" class="form-range" id="volumeSlider" min="0" max="10" step="0.1" value="10">
-                                <i class="bi bi-volume-up"></i>
+                                <button class="btn btn-outline-secondary volume-btn" id="volumeUpBtn">
+                                    <i class="bi bi-chevron-right"></i>
+                                </button>
                             </div>
                         </div>
                     </div>

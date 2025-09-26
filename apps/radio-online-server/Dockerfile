@@ -2,9 +2,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY index.ts ./
-COPY docker-compose.yml ./
-COPY Dockerfile ./
+# 先複製所有源代碼
+COPY . ./
 
 # 建立資料目錄並設定權限
 RUN mkdir -p /app/data && \

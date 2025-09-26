@@ -6,7 +6,7 @@ import { instrument } from '@socket.io/admin-ui';
 import Database from 'better-sqlite3';
 import fs from 'fs';
 
-console.log('=== 正在啟動 radio-online-server 1.0.1 ===');
+console.log('=== 正在啟動 radio-online-server 1.0.2 (修復版本) ===');
 
 // 確保資料目錄存在
 const dataDir = '/app/data';
@@ -74,6 +74,14 @@ let currentRadioState = {
 
 // 添加線上人數計數
 let onlineUsers = 0;
+
+// 添加防護機制，避免重複清除
+let lastClearTime = 0;
+const CLEAR_COOLDOWN = 1000; // 1秒冷卻時間
+
+// 添加清除操作保護機制
+let isPlaylistClearing = false;
+const CLEAR_PROTECTION_TIME = 3000; // 3秒保護時間
 
 interface ChatMessage {
   userName: string;
@@ -206,24 +214,45 @@ io.on('connection', (socket) => {
 
   // 處理狀態更新
   socket.on('updateRadioState', (state) => {
-    // 合併狀態而不是完全覆蓋，確保不會丟失音量等資訊
-    currentRadioState = {
-      ...currentRadioState,
-      ...state,
-      youtubeState: state.youtubeState ? {
-        ...currentRadioState.youtubeState,
-        ...state.youtubeState,
-        // 如果收到的狀態中播放清單為空或未定義，保持現有的播放清單
-        playlist: (state.youtubeState.playlist && state.youtubeState.playlist.length > 0) 
-          ? state.youtubeState.playlist 
-          : currentRadioState.youtubeState.playlist
-      } : currentRadioState.youtubeState
-    };
+    // 檢查是否在清除操作保護期內
+    if (isPlaylistClearing) {
+      console.log('清除操作保護期內，忽略包含播放清單的狀態更新');
+      // 只更新非播放清單相關的狀態
+      currentRadioState = {
+        ...currentRadioState,
+        ...state,
+        youtubeState: state.youtubeState ? {
+          ...currentRadioState.youtubeState,
+          ...state.youtubeState,
+          // 保護期內保持現有的播放清單
+          playlist: currentRadioState.youtubeState.playlist
+        } : currentRadioState.youtubeState
+      };
+    } else {
+      // 正常狀態更新邏輯
+      currentRadioState = {
+        ...currentRadioState,
+        ...state,
+        youtubeState: state.youtubeState ? {
+          ...currentRadioState.youtubeState,
+          ...state.youtubeState,
+          // 修復：如果收到的狀態中明確包含播放清單（即使是空陣列），則使用該播放清單
+          // 只有在播放清單完全未定義時才保持現有的播放清單
+          playlist: state.youtubeState.hasOwnProperty('playlist') 
+            ? state.youtubeState.playlist 
+            : currentRadioState.youtubeState.playlist
+        } : currentRadioState.youtubeState
+      };
+    }
 
     console.log('合併狀態更新:', {
       volume: currentRadioState.volume,
       isPlaying: currentRadioState.isPlaying,
-      youtubeState: currentRadioState.youtubeState
+      youtubeState: {
+        ...currentRadioState.youtubeState,
+        playlistLength: currentRadioState.youtubeState.playlist.length
+      },
+      isPlaylistClearing: isPlaylistClearing
     });
 
     // 如果有 YouTube 狀態，保存到資料庫
@@ -290,22 +319,79 @@ io.on('connection', (socket) => {
       return;
     }
     
+    // 發送開始處理的訊息
+    socket.emit('playlistProcessing', { 
+      status: 'started', 
+      total: playlist.length,
+      message: `開始處理 ${playlist.length} 首歌曲...`
+    });
+    
     try {
-      // 先清除現有的播放清單
-      const clear = db.prepare('DELETE FROM playlist');
-      clear.run();
+      // 使用事務來確保數據一致性
+      const transaction = db.transaction(() => {
+        // 先清除現有的播放清單
+        const clear = db.prepare('DELETE FROM playlist');
+        clear.run();
+        
+        // 使用批量插入提高性能
+        const insert = db.prepare('INSERT INTO playlist (videoId, title, addedAt) VALUES (?, ?, ?)');
+        const now = Date.now();
+        
+        // 批量插入，每100首歌曲發送一次進度更新
+        const batchSize = 100;
+        for (let i = 0; i < playlist.length; i += batchSize) {
+          const batch = playlist.slice(i, i + batchSize);
+          
+          for (const item of batch) {
+            insert.run(item.id, item.title || '', now);
+          }
+          
+          // 發送進度更新
+          const progress = Math.min(i + batchSize, playlist.length);
+          socket.emit('playlistProcessing', {
+            status: 'progress',
+            processed: progress,
+            total: playlist.length,
+            message: `已處理 ${progress}/${playlist.length} 首歌曲`
+          });
+          
+          // 讓出控制權，避免阻塞事件循環
+          if (i + batchSize < playlist.length) {
+            // 使用 setImmediate 讓出控制權
+            setImmediate(() => {});
+          }
+        }
+      });
       
-      // 插入新的播放清單
-      const insert = db.prepare('INSERT INTO playlist (videoId, title, addedAt) VALUES (?, ?, ?)');
-      const now = Date.now();
-      for (const item of playlist) {
-        insert.run(item.id, item.title || '', now);
-      }
-      socket.emit('playlistAdded', { success: true });
+      // 執行事務
+      transaction();
+      
+      // 更新記憶體中的播放清單狀態
+      const formattedPlaylist = playlist.map((item: any) => ({
+        id: item.id,
+        title: item.title || item.id
+      }));
+      
+      currentRadioState.youtubeState.playlist = formattedPlaylist;
+      currentRadioState.youtubeState.currentIndex = -1;
+      currentRadioState.youtubeState.currentVideoId = null;
+      
+      // 廣播更新後的狀態給所有客戶端
+      io.emit('radioStateUpdate', currentRadioState);
+      
+      // 發送完成訊息
+      socket.emit('playlistAdded', { 
+        success: true, 
+        message: `成功加入 ${playlist.length} 首歌曲到播放佇列`
+      });
+      
       console.log('已寫入 playlist:', playlist.length + ' 個項目');
     } catch (error) {
       console.error('寫入播放清單時發生錯誤:', error);
-      socket.emit('playlistAdded', { success: false, error: '資料庫錯誤' });
+      socket.emit('playlistAdded', { 
+        success: false, 
+        error: '資料庫錯誤: ' + (error instanceof Error ? error.message : String(error))
+      });
     }
   });
 
@@ -353,7 +439,25 @@ io.on('connection', (socket) => {
 
   // 新增：接收 client 清除播放清單的請求
   socket.on('clearPlaylist', () => {
+    const now = Date.now();
+    
+    // 檢查冷卻時間，避免重複清除
+    if (now - lastClearTime < CLEAR_COOLDOWN) {
+      console.log('清除播放清單請求被忽略（冷卻時間內）');
+      socket.emit('playlistCleared', { success: false, error: '請稍後再試' });
+      return;
+    }
+    
+    lastClearTime = now;
     console.log('收到 clearPlaylist 請求');
+    
+    // 設置清除操作保護期
+    isPlaylistClearing = true;
+    setTimeout(() => {
+      isPlaylistClearing = false;
+      console.log('清除操作保護期結束');
+    }, CLEAR_PROTECTION_TIME);
+    
     try {
       const clear = db.prepare('DELETE FROM playlist');
       clear.run();
@@ -371,11 +475,17 @@ io.on('connection', (socket) => {
       `);
       updateYoutubeState.run(Date.now());
       
-      // 廣播更新後的狀態給所有客戶端
-      io.emit('radioStateUpdate', currentRadioState);
+      // 廣播更新後的狀態給所有客戶端，確保包含空的播放清單
+      io.emit('radioStateUpdate', {
+        ...currentRadioState,
+        youtubeState: {
+          ...currentRadioState.youtubeState,
+          playlist: [] // 明確設置為空陣列
+        }
+      });
       
       socket.emit('playlistCleared', { success: true });
-      console.log('已清除資料庫和記憶體中的播放清單');
+      console.log('已清除資料庫和記憶體中的播放清單，並廣播空播放清單狀態，保護期:', CLEAR_PROTECTION_TIME + 'ms');
     } catch (error) {
       console.error('清除資料庫播放清單時發生錯誤:', error);
       socket.emit('playlistCleared', { success: false, error: '無法清除播放清單' });

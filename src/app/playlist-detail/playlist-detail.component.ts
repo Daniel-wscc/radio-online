@@ -144,12 +144,37 @@ export class PlaylistDetailComponent implements OnInit, OnDestroy {
       title: item.title || item.videoId
     }));
 
+    // 設置載入狀態
+    this.isLoading = true;
+
+    // 監聽處理進度
+    const progressSubscription = this.radioSync.onPlaylistProcessing().subscribe(data => {
+      console.log('播放清單處理進度:', data);
+      
+      if (data.status === 'started') {
+        console.log('開始處理播放清單:', data.message);
+      } else if (data.status === 'progress') {
+        console.log('處理進度:', data.message);
+        // 可以在這裡更新UI顯示進度
+      }
+    });
+
+    // 監聽完成事件
+    const completedSubscription = this.radioSync.onPlaylistAdded().subscribe(result => {
+      this.isLoading = false;
+      progressSubscription.unsubscribe();
+      completedSubscription.unsubscribe();
+      
+      if (result.success) {
+        alert(result.message || `已將 ${this.items.length} 首歌曲加入到播放佇列`);
+        this.goBack();
+      } else {
+        alert('加入播放佇列失敗: ' + (result.error || '未知錯誤'));
+      }
+    });
+
     // 使用現有的 addPlaylist 方法來加入歌曲到當前播放佇列
     this.radioSync.addPlaylist(playlist);
-    
-    // 顯示成功訊息並返回
-    alert(`已將 ${this.items.length} 首歌曲加入到播放佇列`);
-    this.goBack();
   }
 
   addSingleToQueue(item: PlaylistItem) {

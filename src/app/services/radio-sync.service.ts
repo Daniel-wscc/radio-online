@@ -127,6 +127,16 @@ export class RadioSyncService {
     return this.socket.fromEvent<any>('playlistLoaded');
   }
 
+  // 監聽播放清單處理進度
+  onPlaylistProcessing(): Observable<any> {
+    return this.socket.fromEvent<any>('playlistProcessing');
+  }
+
+  // 監聽播放清單添加完成事件
+  onPlaylistAdded(): Observable<any> {
+    return this.socket.fromEvent<any>('playlistAdded');
+  }
+
   // 播放清單管理相關方法
 
   // 獲取所有播放清單

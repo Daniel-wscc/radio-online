@@ -587,6 +587,23 @@ function handleStateUpdate(state) {
                     if (youtubePlayer && youtubePlayer.playVideo) {
                         youtubePlayer.playVideo();
                     }
+                    // 確保音量設置正確
+                    setTimeout(function() {
+                        try {
+                            var currentVolume = volumeSlider.value / 10;
+                            if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
+                                youtubePlayer.setVolume(currentVolume * 100);
+                                if (currentVolume === 0) {
+                                    youtubePlayer.mute();
+                                } else {
+                                    youtubePlayer.unMute();
+                                }
+                                console.log('遠端載入影片時設置音量:', currentVolume * 100, '靜音:', currentVolume === 0);
+                            }
+                        } catch (error) {
+                            console.error('設置遠端載入影片音量失敗:', error);
+                        }
+                    }, 1500);
                 }, 1000);
             } else if (youtubePlayer && newVideoId && youtubePlayer.getPlayerState &&
                       youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
@@ -596,6 +613,23 @@ function handleStateUpdate(state) {
                     if (youtubePlayer && youtubePlayer.playVideo) {
                         youtubePlayer.playVideo();
                     }
+                    // 確保音量設置正確
+                    setTimeout(function() {
+                        try {
+                            var currentVolume = volumeSlider.value / 10;
+                            if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
+                                youtubePlayer.setVolume(currentVolume * 100);
+                                if (currentVolume === 0) {
+                                    youtubePlayer.mute();
+                                } else {
+                                    youtubePlayer.unMute();
+                                }
+                                console.log('已載入影片播放時設置音量:', currentVolume * 100, '靜音:', currentVolume === 0);
+                            }
+                        } catch (error) {
+                            console.error('設置已載入影片音量失敗:', error);
+                        }
+                    }, 1000);
                 }, 500);
             }
         }
@@ -1040,21 +1074,23 @@ function playYoutubeIndex(index) {
                 if (youtubePlayer && youtubePlayer.playVideo) {
                     youtubePlayer.playVideo();
                 }
-                // 確保音量設置正確
-                try {
-                    var currentVolume = volumeSlider.value / 10;
-                    if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-                        youtubePlayer.setVolume(currentVolume * 100);
-                        if (currentVolume === 0) {
-                            youtubePlayer.mute();
-                        } else {
-                            youtubePlayer.unMute();
+                // 確保音量設置正確 - 增加延遲確保播放器完全載入
+                setTimeout(function() {
+                    try {
+                        var currentVolume = volumeSlider.value / 10;
+                        if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
+                            youtubePlayer.setVolume(currentVolume * 100);
+                            if (currentVolume === 0) {
+                                youtubePlayer.mute();
+                            } else {
+                                youtubePlayer.unMute();
+                            }
+                            console.log('手動切換影片時設置音量:', currentVolume * 100, '靜音:', currentVolume === 0);
                         }
-                        console.log('手動切換影片時設置音量:', currentVolume * 100, '靜音:', currentVolume === 0);
+                    } catch (error) {
+                        console.error('設置手動切換影片音量失敗:', error);
                     }
-                } catch (error) {
-                    console.error('設置手動切換影片音量失敗:', error);
-                }
+                }, 1000); // 增加延遲到1秒
             }, 500);
         }
         updatePlaylistUI();
@@ -1115,21 +1151,23 @@ function onPlayerStateChange(event) {
     }
     // 當新視頻開始播放時
     else if (event.data === YT.PlayerState.PLAYING) {
-        // 確保音量設置正確
-        try {
-            var currentVolume = volumeSlider.value / 10;
-            if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-                youtubePlayer.setVolume(currentVolume * 100);
-                if (currentVolume === 0) {
-                    youtubePlayer.mute();
-                } else {
-                    youtubePlayer.unMute();
+        // 確保音量設置正確 - 使用更長的延遲確保播放器完全載入
+        setTimeout(function() {
+            try {
+                var currentVolume = volumeSlider.value / 10;
+                if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
+                    youtubePlayer.setVolume(currentVolume * 100);
+                    if (currentVolume === 0) {
+                        youtubePlayer.mute();
+                    } else {
+                        youtubePlayer.unMute();
+                    }
+                    console.log('新影片播放時設置音量:', currentVolume * 100, '靜音:', currentVolume === 0);
                 }
-                console.log('新影片播放時設置音量:', currentVolume * 100, '靜音:', currentVolume === 0);
+            } catch (error) {
+                console.error('設置新影片音量失敗:', error);
             }
-        } catch (error) {
-            console.error('設置新影片音量失敗:', error);
-        }
+        }, 1500); // 增加延遲到1.5秒確保播放器完全載入
         
         // 如果之前是全螢幕，嘗試恢復全螢幕狀態
         if (wasFullscreen) {

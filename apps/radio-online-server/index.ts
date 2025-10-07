@@ -6,7 +6,7 @@ import { instrument } from '@socket.io/admin-ui';
 import Database from 'better-sqlite3';
 import fs from 'fs';
 
-console.log('=== 正在啟動 radio-online-server 1.0.2 (修復版本) ===');
+console.log('=== 正在啟動 radio-online-server 1.0.3 ===');
 
 // 確保資料目錄存在
 const dataDir = '/app/data';
@@ -372,12 +372,25 @@ io.on('connection', (socket) => {
         title: item.title || item.id
       }));
       
-      currentRadioState.youtubeState.playlist = formattedPlaylist;
-      currentRadioState.youtubeState.currentIndex = -1;
-      currentRadioState.youtubeState.currentVideoId = null;
+      // 保存當前的播放狀態
+      const currentIndex = currentRadioState.youtubeState.currentIndex;
+      const currentVideoId = currentRadioState.youtubeState.currentVideoId;
       
-      // 廣播更新後的狀態給所有客戶端
-      io.emit('radioStateUpdate', currentRadioState);
+      currentRadioState.youtubeState.playlist = formattedPlaylist;
+      
+      // 如果當前播放的影片不在新的播放清單中，才重置索引
+      if (currentIndex >= 0 && currentVideoId) {
+        const currentVideoStillExists = formattedPlaylist.some((item: any) => item.id === currentVideoId);
+        if (!currentVideoStillExists) {
+          // 當前影片不在新播放清單中，重置索引
+          currentRadioState.youtubeState.currentIndex = -1;
+          currentRadioState.youtubeState.currentVideoId = null;
+        }
+        // 如果當前影片還在播放清單中，保持當前狀態
+      }
+      
+      // 廣播更新後的狀態給所有其他客戶端（不包括發送請求的客戶端）
+      socket.broadcast.emit('radioStateUpdate', currentRadioState);
       
       // 發送完成訊息
       socket.emit('playlistAdded', { 

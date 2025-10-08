@@ -41,8 +41,8 @@
         "production": {
           "commands": [
             "ssh -i %USERPROFILE%\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"cd /volume1/DEMO/server && sudo docker-compose -p prod --env-file .env.prod down\"",
-            "ssh -i %USERPROFILE%\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"rm -rf /volume1/DEMO/server/*\"",
-            "tar -czf - * | ssh -i %USERPROFILE%\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"cd /volume1/DEMO/server && tar -xzf -\"",
+            "ssh -i %USERPROFILE%\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"find /volume1/DEMO/server -mindepth 1 -maxdepth 1 ! -name data -exec rm -rf {} +\"",
+            "tar --exclude='data' -czf - . | ssh -i %USERPROFILE%\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"cd /volume1/DEMO/server && tar -xzf -\"",
             "ssh -i %USERPROFILE%\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"cd /volume1/DEMO/server && sudo docker-compose -p prod --env-file .env.prod build --no-cache --pull\"",
             "ssh -i %USERPROFILE%\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"cd /volume1/DEMO/server && sudo docker-compose -p prod --env-file .env.prod up -d\""
           ]

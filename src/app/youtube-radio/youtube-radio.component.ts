@@ -28,17 +28,20 @@ import { debounceTime } from 'rxjs/operators';
   standalone: true
 })
 export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
-  @ViewChild('youtubePlayer', { static: false }) youtubePlayer!: YouTubePlayer;
+  @ViewChild('youtubePlayer', { static: false }) youtubePlayer?: YouTubePlayer;
 
   urlInput: string = '';
   playlist: Array<{ id: string, title?: string }> = [];
   currentVideoId: string | null = null;
   currentIndex: number = -1;
 
-  playerConfig = {
-    origin: window.location.origin,
-    widget_referrer: window.location.href,
-    autoplay: 1  // 添加自動播放設定
+  playerConfig: YT.PlayerVars = {
+    autoplay: 0,  // 不自動播放
+    controls: 1,  // 顯示控制項
+    modestbranding: 1,  // 簡化品牌標誌
+    rel: 0,  // 不顯示相關影片
+    fs: 1,  // 允許全螢幕
+    enablejsapi: 1  // 啟用 JavaScript API
   };
 
   isDarkTheme = false;
@@ -107,7 +110,11 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // 獲取當前播放器
   private getCurrentPlayer(): YouTubePlayer | null {
-    return this.youtubePlayer || null;
+    if (!this.youtubePlayer) {
+      console.warn('YouTube Player 尚未初始化');
+      return null;
+    }
+    return this.youtubePlayer;
   }
 
   constructor(
@@ -386,10 +393,8 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   ngOnInit() {
     console.log('YouTube組件初始化');
 
-    // 載入 YouTube IFrame API
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    document.body.appendChild(tag);
+    // 載入 YouTube IFrame API - 確保只載入一次
+    this.loadYouTubeAPI();
 
     // 當切換到YouTube模式時，從伺服器載入播放清單
     // 避免無限循環：只在初始化時載入一次
@@ -409,6 +414,43 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       this.isComponentInitializing = false;
       console.log('YouTube組件初始化完成');
     }, 2000);
+  }
+
+  // 載入 YouTube IFrame API
+  private loadYouTubeAPI(): void {
+    // 檢查是否已經載入
+    if ((window as any).YT && (window as any).YT.Player) {
+      console.log('YouTube API 已經載入');
+      return;
+    }
+
+    // 檢查是否正在載入
+    if (document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+      console.log('YouTube API 正在載入中');
+      return;
+    }
+
+    console.log('開始載入 YouTube API');
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    tag.async = true;
+    tag.defer = true;
+    
+    // 添加載入完成的回調
+    tag.onload = () => {
+      console.log('YouTube API script 載入完成');
+    };
+    
+    tag.onerror = (error) => {
+      console.error('YouTube API script 載入失敗:', error);
+    };
+
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    if (firstScriptTag && firstScriptTag.parentNode) {
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+    } else {
+      document.head.appendChild(tag);
+    }
   }
 
   ngAfterViewInit(): void {
@@ -474,9 +516,15 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
         // 設置第一個影片為當前影片
         this.currentVideoId = this.playlist[0].id;
         this.currentIndex = 0;
+        
+        // 等待 DOM 更新後再觸發變更檢測
+        setTimeout(() => {
+          this.cdr.detectChanges();
+        }, 100);
       } else if (this.currentIndex === -1 && this.playlist.length > 0) {
-        // 如果目前沒有播放任何影片且播放清單不為空，開始播放第一首
-        this.playIndex(0);
+        // 如果目前沒有播放任何影片且播放清單不為空，設置第一首但不自動播放
+        this.currentVideoId = this.playlist[0].id;
+        this.currentIndex = 0;
       }
 
       // 載入播放清單後只需要同步播放清單，不觸發播放狀態更新
@@ -730,6 +778,14 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onPlayerReady(event: YT.PlayerEvent) {
+    console.log('YouTube 播放器 onPlayerReady 被調用');
+    
+    // 確保播放器實例存在
+    if (!event.target) {
+      console.error('播放器實例不存在');
+      return;
+    }
+
     this.isPlayerReady = true;
     console.log('YouTube 播放器已準備就緒，當前影片ID:', this.currentVideoId, '播放狀態:', this.isPlaying);
 
@@ -755,8 +811,13 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       this.currentVideoId = this.playlist[0].id;
       this.currentIndex = 0;
       console.log('設置第一個影片為當前影片:', this.currentVideoId);
-      // 載入影片但不自動播放
-      event.target.loadVideoById(this.currentVideoId);
+      
+      // 使用 cueVideoById 而不是 loadVideoById，這樣不會自動播放
+      try {
+        event.target.cueVideoById(this.currentVideoId);
+      } catch (error) {
+        console.error('載入影片失敗:', error);
+      }
     }
 
     if (this.currentVideoId) {

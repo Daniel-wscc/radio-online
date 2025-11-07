@@ -135,8 +135,8 @@
         "production": {
           "commands": [
             "nx build radio-online --configuration production",
-            "ssh -i C:\\Users\\singh\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"rm -rf /volume1/DEMO/radio-online/*\"",
-            "cd dist/radio-online/browser && tar -czf - * | ssh -i C:\\Users\\singh\\.ssh\\id_rsa -p 1998 wscc1031@wscc1031.synology.me \"cd /volume1/DEMO/radio-online && tar -xzf -\""
+            "ssh -i C:\\Users\\singh\\.ssh\\id_rsa -p 1998 wscc1031@100.106.55.4 \"rm -rf /volume1/DEMO/radio-online/*\"",
+            "cd dist/radio-online/browser && tar -czf - * | ssh -i C:\\Users\\singh\\.ssh\\id_rsa -p 1998 wscc1031@100.106.55.4 \"cd /volume1/DEMO/radio-online && tar -xzf -\""
           ]
         }
       },

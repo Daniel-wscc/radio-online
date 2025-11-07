@@ -149,10 +149,10 @@
      [class.mini-mode]="!isPlayerExpanded"
      [class.expanded-mode]="isPlayerExpanded">
 
-  @if(currentVideoId || playlist.length > 0) {
+  @if(currentVideoId && playlist.length > 0) {
     <!-- 有影片時顯示 YouTube 播放器 -->
     <youtube-player
-      [videoId]="currentVideoId || playlist[0].id"
+      [videoId]="currentVideoId"
       [width]="videoWidth || 640"
       [height]="videoHeight || 360"
       [playerVars]="playerConfig"

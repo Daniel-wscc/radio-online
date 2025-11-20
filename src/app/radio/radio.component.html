@@ -7,19 +7,20 @@
   <!-- 左側 Sidebar -->
   <div class="sidebar-container w-full md:w-1/4 bg-base-200 shadow-xl border-r border-base-300 flex flex-col h-screen">
     <!-- 標題區域 - 固定不滾動 -->
-    <div class="sidebar-header p-5 flex justify-between items-center border-b border-base-300 bg-base-200 flex-shrink-0">
+    <div
+      class="sidebar-header p-5 flex justify-between items-center border-b border-base-300 bg-base-200 flex-shrink-0">
       <div class="flex items-center gap-2">
         <h2 class="text-2xl font-extrabold text-base-content tracking-wide drop-shadow">芯禾電台3.0</h2>
-        <span class="badge badge-success rounded-full shadow">線上人數 {{ onlineUsers }}</span>
+        <span class="badge badge-success rounded-full shadow"><i class="bi bi-person-fill"></i> {{ onlineUsers }}</span>
       </div>
     </div>
 
     <!-- 電台列表 - 可滾動區域 -->
     <div class="sidebar-content flex-1 overflow-y-auto divide-y divide-base-300 text-base-content bg-base-200">
       <!-- YouTube 播放器選項 -->
-      <div class="station p-4 cursor-pointer transition hover:bg-base-300 rounded-lg m-2 shadow-sm border border-transparent hover:border-primary"
-          [class.selected]="isYoutubeMode"
-          (click)="switchToYoutube()">
+      <div
+        class="station p-4 cursor-pointer transition hover:bg-base-300 rounded-lg m-2 shadow-sm border border-transparent hover:border-primary"
+        [class.selected]="isYoutubeMode" (click)="switchToYoutube()">
         <div>
           <strong class="text-lg">YouTube 播放器</strong>
         </div>
@@ -29,34 +30,33 @@
       </div>
       <!-- 現有的電台列表 -->
       @for (station of featuredStations; track station.id) {
-        <div class="station p-4 cursor-pointer transition hover:bg-base-300 rounded-lg m-2 shadow-sm border border-transparent hover:border-primary"
-            [class.selected]="currentStation?.name === station.name"
-            (click)="selectStation(station)">
-          <div>
-            <strong class="text-lg">{{ station.name }}</strong>
-          </div>
-          @if (station.tags) {
-            <div class="station-tags flex gap-1">
-              @for (tag of (Array.isArray(station.tags) ? station.tags : [station.tags]); track tag) {
-                <div class="badge badge-{{ getTagSeverity(tag) }}">{{ tag }}</div>
-              }
-            </div>
-          }
-                    <!-- 為 BigBRadio 電台添加現正播放區域 -->
-          @if (isBigBRadioStation(station)) {
-            <div class="now-playing-container mt-2 p-2 bg-primary/10 border border-primary/20 rounded-lg">
-              <span class="now-playing-label text-base-content font-semibold text-sm mr-2">Now Playing:</span>
-              <div class="now-playing-text text-base-content text-sm overflow-hidden"
-                   [class.marquee]="(getNowPlayingText(station)?.length || 0) > 30"
-                   [attr.data-text]="getNowPlayingText(station) || ''"
-                   [title]="getNowPlayingText(station) || ''">
-                {{ getNowPlayingText(station) || '載入中...' }}
-              </div>
-            </div>
+      <div
+        class="station p-4 cursor-pointer transition hover:bg-base-300 rounded-lg m-2 shadow-sm border border-transparent hover:border-primary"
+        [class.selected]="currentStation?.name === station.name" (click)="selectStation(station)">
+        <div>
+          <strong class="text-lg">{{ station.name }}</strong>
+        </div>
+        @if (station.tags) {
+        <div class="station-tags flex gap-1">
+          @for (tag of (Array.isArray(station.tags) ? station.tags : [station.tags]); track tag) {
+          <div class="badge badge-{{ getTagSeverity(tag) }}">{{ tag }}</div>
           }
         </div>
+        }
+        <!-- 為 BigBRadio 電台添加現正播放區域 -->
+        @if (isBigBRadioStation(station)) {
+        <div class="now-playing-container mt-2 p-2 bg-primary/10 border border-primary/20 rounded-lg">
+          <span class="now-playing-label text-base-content font-semibold text-sm mr-2">Now Playing:</span>
+          <div class="now-playing-text text-base-content text-sm overflow-hidden"
+            [class.marquee]="(getNowPlayingText(station)?.length || 0) > 30"
+            [attr.data-text]="getNowPlayingText(station) || ''" [title]="getNowPlayingText(station) || ''">
+            {{ getNowPlayingText(station) || '載入中...' }}
+          </div>
+        </div>
+        }
+      </div>
       }
-      
+
       <!-- 版本資訊 - 置底 -->
       <div class="version-info p-3 mt-auto border-t border-base-300 bg-base-200/50 text-center">
         <div class="text-xs text-base-content/60">
@@ -71,40 +71,48 @@
   <div class="player-container w-full md:w-3/4 bg-base-100 h-screen overflow-hidden">
     <div class="player-content w-full h-full overflow-y-auto">
       @if (!isYoutubeMode) {
-        <!-- 主題切換選單，位於內容流中 -->
-        <div class="flex justify-end p-4">
-          <app-theme-switcher></app-theme-switcher>
-        </div>
-        <div class="w-full max-w-2xl p-6 mx-auto">
-          <div class="card bg-base-200 shadow-2xl rounded-2xl border border-base-300">
-            <div class="card-body p-8">
-              <div class="text-center mb-6">
-                <h3 class="text-3xl font-bold mb-2 text-primary">{{ currentStation?.name || '未選擇電台' }}</h3>
-                @if (currentStation?.tags) {
-                  <div class="flex justify-center gap-2 mb-2">
-                    @for (tag of (Array.isArray(currentStation.tags) ? currentStation.tags : [currentStation.tags]); track tag) {
-                      <span class="badge badge-info">{{ tag }}</span>
-                    }
-                  </div>
+      <!-- 主題切換選單，位於內容流中 -->
+      <div class="flex justify-end p-4">
+        <app-theme-switcher></app-theme-switcher>
+      </div>
+      <div class="w-full max-w-2xl p-6 mx-auto">
+        <div class="card bg-base-200 shadow-2xl rounded-2xl border border-base-300">
+          <div class="card-body p-8">
+            <div class="text-center mb-6">
+              <h3 class="text-3xl font-bold mb-2 text-primary">{{ currentStation?.name || '未選擇電台' }}</h3>
+              @if (currentStation?.tags) {
+              <div class="flex justify-center gap-2 mb-2">
+                @for (tag of (Array.isArray(currentStation.tags) ? currentStation.tags : [currentStation.tags]); track
+                tag) {
+                <span class="badge badge-info">{{ tag }}</span>
                 }
               </div>
-              <!-- 音量控制 -->
-              <div class="mb-4">
-                <div class="flex items-center gap-2">
-                  <button class="btn btn-ghost btn-sm" (click)="adjustVolume(-0.1)">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
-                  </button>
-                  <input type="range" min="0" max="100" class="range range-primary flex-1" [ngModel]="volume * 100" (ngModelChange)="onVolumeChange($event)">
-                  <button class="btn btn-ghost btn-sm" (click)="adjustVolume(0.1)">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                  </button>
-                </div>
+              }
+            </div>
+            <!-- 音量控制 -->
+            <div class="mb-4">
+              <div class="flex items-center gap-2">
+                <button class="btn btn-ghost btn-sm" (click)="adjustVolume(-0.1)">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <input type="range" min="0" max="100" class="range range-primary flex-1" [ngModel]="volume * 100"
+                  (ngModelChange)="onVolumeChange($event)">
+                <button class="btn btn-ghost btn-sm" (click)="adjustVolume(0.1)">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
               </div>
             </div>
           </div>
         </div>
+      </div>
       } @else {
-        <app-youtube-radio class="w-full h-full"></app-youtube-radio>
+      <app-youtube-radio class="w-full h-full"></app-youtube-radio>
       }
     </div>
   </div>

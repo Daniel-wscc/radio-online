@@ -1052,6 +1052,22 @@ function onYouTubeIframeAPIReady() {
 function onPlayerReady(event) {
     console.log('Player Ready');
 
+    // 暴露音量檢查方法到 window
+    window.checkVolume = function() {
+        var currentVolume = volumeSlider.value / 10;
+        console.log('目前元件記錄音量 (volumeSlider):', currentVolume);
+        
+        if (youtubePlayer) {
+            // YouTube Player API 的 getVolume 返回 0-100
+            var playerVolume = youtubePlayer.getVolume ? youtubePlayer.getVolume() : 'Unknown';
+            var playerMuted = youtubePlayer.isMuted ? youtubePlayer.isMuted() : 'Unknown';
+            console.log('實際播放器音量 (0-100):', playerVolume);
+            console.log('實際播放器靜音狀態:', playerMuted);
+        } else {
+            console.log('播放器實例未找到');
+        }
+    };
+
     // 設置初始音量
     try {
         var currentVolume = volumeSlider.value / 10;

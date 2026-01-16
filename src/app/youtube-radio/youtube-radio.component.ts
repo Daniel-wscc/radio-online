@@ -461,6 +461,23 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     setTimeout(() => {
       this.updatePlayerPosition();
     }, 100);
+
+    // 暴露音量檢查方法到 window
+    (window as any).checkVolume = () => {
+      const player = this.getCurrentPlayer();
+      console.log('目前元件記錄音量 (this.volume):', this.volume);
+      console.log('目前元件記錄靜音狀態 (this.isMuted):', this.isMuted);
+      
+      if (player) {
+        // YouTube Player API 的 getVolume 返回 0-100
+        const playerVolume = (player as any).getVolume ? (player as any).getVolume() : 'Unknown';
+        const playerMuted = (player as any).isMuted ? (player as any).isMuted() : 'Unknown';
+        console.log('實際播放器音量 (0-100):', playerVolume);
+        console.log('實際播放器靜音狀態:', playerMuted);
+      } else {
+        console.log('播放器實例未找到');
+      }
+    };
   }
 
   onResize(): void {
@@ -637,6 +654,27 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     this.isPlaying = playerState === YT.PlayerState.PLAYING;
     console.log('播放器狀態變化:', playerState, '是否播放中:', this.isPlaying);
 
+    // 當狀態變為 PLAYING 時，確保音量正確
+    if (playerState === YT.PlayerState.PLAYING) {
+      setTimeout(() => {
+        const player = this.getCurrentPlayer();
+        if (player) {
+          try {
+            // 使用目前記錄的音量設置
+            player.setVolume(this.volume * 100);
+            if (this.isMuted) {
+              player.mute();
+            } else {
+              player.unMute();
+            }
+            console.log('播放時強制同步音量:', this.volume * 100, '靜音:', this.isMuted);
+          } catch (error) {
+            console.error('播放時同步音量失敗:', error);
+          }
+        }
+      }, 500); // 延遲執行以確保播放器就緒
+    }
+
     if (playerState === YT.PlayerState.ENDED) {
       console.log('影片播放結束，切換到下一首');
       if (this.currentIndex >= this.playlist.length - 1) {
@@ -702,28 +740,6 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     console.log('只同步播放清單，不更新播放狀態');
   }
 
-  // 只同步播放狀態，不發送 addPlaylist
-  private syncPlayingState() {
-    // 如果組件正在初始化，不發送狀態更新，避免中斷播放
-    if (this.isComponentInitializing) {
-      console.log('組件初始化中，跳過播放狀態更新');
-      return;
-    }
-
-    const newState = {
-      isPlaying: this.isPlaying,
-      volume: this.isMuted ? 0 : this.volume,
-      youtubeState: {
-        isYoutubeMode: true,
-        playlist: this.playlist,
-        currentIndex: this.currentIndex,
-        currentVideoId: this.currentVideoId
-      }
-    };
-
-    console.log('發送播放狀態更新:', newState);
-    this.radioSync.updateState(newState);
-  }
 
   // 新增：只同步播放索引和影片ID，不發送播放清單
   private syncPlaybackState() {

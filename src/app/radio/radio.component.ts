@@ -1,4 +1,4 @@
-import { Component, OnInit, ElementRef, ViewChild, AfterViewInit, ChangeDetectorRef, OnDestroy } from '@angular/core';
+import { Component, OnInit, ElementRef, ViewChild, AfterViewInit, ChangeDetectorRef, OnDestroy, DestroyRef, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import Hls from 'hls.js';
@@ -9,8 +9,8 @@ import { YoutubeRadioComponent } from '../youtube-radio/youtube-radio.component'
 import { ThemeSwitcherComponent } from '../shared/theme-switcher/theme-switcher.component';
 import { ChatService } from '../services/chat.service';
 import { Subject } from 'rxjs';
-import { debounceTime, take } from 'rxjs/operators';
-// import VConsole from 'vconsole';
+import { debounceTime } from 'rxjs/operators';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-radio',
@@ -29,8 +29,8 @@ import { debounceTime, take } from 'rxjs/operators';
 export class RadioComponent implements OnDestroy, AfterViewInit {
   @ViewChild('audioPlayer') audioPlayer!: ElementRef<HTMLAudioElement>;
   private isAudioPlayerReady = false;
-  
-  // private vConsole = new VConsole();
+  private destroyRef = inject(DestroyRef);
+
   public stations: any[] = [];
   protected Array = Array;
   public currentStation: any = null;
@@ -116,15 +116,42 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   private nowPlayingCacheTimeout = 30000; // 30秒快取，與更新間隔一致
   private nowPlayingUpdateInterval: any;
 
+  // BigBRadio 電台列表（初始化時快取，避免每次 filter）
+  private bigbStations: typeof this.customStations = [];
+  // BigBRadio 頻道名稱快取
+  private bigbChannelMap = new Map<string, string>();
+
   private volumeChange$ = new Subject<number>();
+
+  // Proxy 服務設定
+  private proxyServices = [
+    { url: 'https://api.allorigins.win/raw?url=', encode: true },
+    { url: 'https://corsproxy.io/?', encode: true },
+    { url: 'https://api.codetabs.com/v1/proxy?quest=', encode: false },
+    { url: 'https://thingproxy.freeboard.io/fetch/', encode: false },
+    { url: 'https://cors-anywhere.herokuapp.com/', encode: false }
+  ];
 
   constructor(
     private cdr: ChangeDetectorRef,
     private radioSync: RadioSyncService,
     private chatService: ChatService
   ) {
+    // 預先快取 BigBRadio 電台列表與頻道名稱
+    this.bigbStations = this.customStations.filter(s =>
+      s.url.includes('antares.dribbcast.com/proxy/')
+    );
+    for (const station of this.bigbStations) {
+      const channel = station.url.match(/proxy\/(\w+)/)?.[1];
+      if (channel) {
+        this.bigbChannelMap.set(station.id, channel);
+      }
+    }
+
     // 訂閱 radioState 的變化
-    this.radioSync.radioState$.subscribe((state: RadioState) => {
+    this.radioSync.radioState$.pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe((state: RadioState) => {
       // 處理 YouTube 模式切換
       if (state.youtubeState?.isYoutubeMode) {
         this.isYoutubeMode = true;
@@ -133,17 +160,17 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
           this.audioPlayer.nativeElement.pause();
           this.audioPlayer.nativeElement.src = '';
         }
-      } 
+      }
       // 只有當電台改變時才重新播放
-      else if (state.currentStation && 
-          (!this.currentStation || 
+      else if (state.currentStation &&
+          (!this.currentStation ||
            this.currentStation.name !== state.currentStation.name)) {
         this.isYoutubeMode = false;
         this.currentStation = state.currentStation;
         const url = state.currentStation.url_resolved || state.currentStation.url;
         this.playStation(url, state.currentStation.name);
       }
-      
+
       // 單獨處理音量變化
       if (typeof state.volume === 'number') {
         this.volume = state.volume;
@@ -154,21 +181,18 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     });
 
     // 訂閱線上人數更新
-    this.radioSync.onlineUsers$.subscribe(count => {
-      console.log('組件收到線上人數更新:', count, '當前值:', this.onlineUsers);
+    this.radioSync.onlineUsers$.pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(count => {
       this.onlineUsers = count;
-      // 使用 markForCheck 代替 detectChanges，避免在變更檢測週期外調用
       this.cdr.markForCheck();
     });
 
     this.volumeChange$.pipe(
-      debounceTime(300) // 300ms 可依需求調整
+      debounceTime(300),
+      takeUntilDestroyed(this.destroyRef)
     ).subscribe((vol) => {
-      // 獲取當前完整狀態，確保包含 youtubeState
-      let currentState: RadioState | undefined;
-      this.radioSync.radioState$.pipe(take(1)).subscribe(state => {
-        currentState = state;
-      });
+      const currentState = this.radioSync.currentState;
 
       // 使用輕量級狀態更新，不發送播放清單
       this.radioSync.updateLightweightState({
@@ -186,10 +210,8 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
   ngAfterViewInit() {
     if (this.audioPlayer?.nativeElement) {
-      console.log('Audio player initialized');
       this.isAudioPlayerReady = true;
 
-      // 添加播放状态监听器
       this.audioPlayer.nativeElement.addEventListener('play', () => {
         this.isPlaying = true;
         this.cdr.markForCheck();
@@ -208,21 +230,17 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     } else {
       console.error('Audio player not found');
     }
-    this.initializeStations();  // 改用新方法初始化電台
+    this.initializeStations();
 
-    // 延迟请求当前状态，确保Socket连接已建立
+    // 延遲請求當前狀態，確保 Socket 連接已建立
     setTimeout(() => {
-      console.log('組件初始化完成，請求當前狀態和線上人數');
-          this.radioSync.requestCurrentState();
-    this.radioSync.requestOnlineUsers();
-  }, 1000);
+      this.radioSync.requestCurrentState();
+      this.radioSync.requestOnlineUsers();
+    }, 1000);
 
     // 開始獲取 BigBRadio 現正播放資訊
     this.startNowPlayingUpdates();
-
-  // 移除在 ngAfterViewInit 中的 detectChanges 調用
-  // this.cdr.detectChanges(); // 這會導致 ASSERTION ERROR
-}
+  }
 
   // 簡化初始化電台列表方法
   private initializeStations() {
@@ -234,11 +252,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     let newVolume = Math.min(Math.max(this.volume + change, 0), 1);
     this.volume = newVolume;
 
-    // 獲取當前完整狀態，確保包含 youtubeState
-    let currentState: RadioState | undefined;
-    this.radioSync.radioState$.pipe(take(1)).subscribe(state => {
-      currentState = state;
-    });
+    const currentState = this.radioSync.currentState;
 
     // 使用輕量級狀態更新，不發送播放清單
     this.radioSync.updateLightweightState({
@@ -262,12 +276,10 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
     this.currentStation = this.stations.find(s => s.name === stationName);
     try {
-      console.log(`嘗試播放電台: ${stationName}`);
-      
       if (!this.audioPlayer?.nativeElement) {
         throw new Error('Audio player not initialized');
       }
-      
+
       const audio = this.audioPlayer.nativeElement;
 
       // 如果有正在進行的播放，先等它完成
@@ -340,25 +352,12 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     this.currentStation = station;
     const url = station.url_resolved || station.url;
     this.playStation(url, station.name);
-    
+
     // 發送系統訊息
     const userName = localStorage.getItem('userName') || '訪客';
     this.chatService.sendSystemMessage(`${userName} 切換到 ${station.name}`);
-    
-    let currentState: RadioState = {
-      isPlaying: false,
-      volume: 1,
-      youtubeState: {
-        playlist: [],
-        currentIndex: -1,
-        currentVideoId: null,
-        isYoutubeMode: false
-      }
-    };
-    
-    this.radioSync.radioState$.subscribe(state => {
-      currentState = state;
-    }).unsubscribe();
+
+    const currentState = this.radioSync.currentState;
 
     this.radioSync.updateState({
       currentStation: station,
@@ -402,7 +401,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     // 更新遠端狀態，包含完整的 YouTube 狀態
     this.radioSync.updateState({
       currentStation: null,
-      isPlaying: playlistToUse.length > 0 && indexToUse >= 0, // 如果有播放清單且有選擇影片，設為播放中
+      isPlaying: playlistToUse.length > 0 && indexToUse >= 0,
       volume: this.audioPlayer?.nativeElement?.volume || 1,
       youtubeState: {
         isYoutubeMode: true,
@@ -476,34 +475,29 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     }
   }
 
-
-
-  // 添加 ngOnDestroy 方法
   ngOnDestroy() {
-    // 清理訂閱
     if (this.audioPlayer?.nativeElement) {
       this.audioPlayer.nativeElement.pause();
       this.audioPlayer.nativeElement.src = '';
     }
-    
+
     // 清理現正播放定時器
     if (this.nowPlayingUpdateInterval) {
       clearInterval(this.nowPlayingUpdateInterval);
     }
+
+    this.volumeChange$.complete();
   }
 
   // 現正播放相關方法
   isBigBRadioStation(station: any): boolean {
-    return station.url.includes('antares.dribbcast.com/proxy/');
+    return this.bigbChannelMap.has(station.id);
   }
 
   getNowPlayingText(station: any): string | null {
-    if (!this.isBigBRadioStation(station)) {
-      return null;
-    }
-    const channel = station.url.match(/proxy\/(\w+)/)?.[1];
+    const channel = this.bigbChannelMap.get(station.id);
     if (!channel) return null;
-    
+
     const cacheKey = `nowPlaying_${channel}`;
     const cached = this.nowPlayingCache[cacheKey];
     if (cached && (Date.now() - cached.timestamp) < this.nowPlayingCacheTimeout) {
@@ -515,99 +509,63 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   private startNowPlayingUpdates() {
     // 立即更新一次
     this.updateAllNowPlaying();
-    
+
     // 每30秒更新一次
     this.nowPlayingUpdateInterval = setInterval(() => {
       this.updateAllNowPlaying();
     }, 30000);
-    
+
     // 如果第一次更新失敗，5秒後重試一次
     setTimeout(() => {
       const hasFailed = this.hasNowPlayingFailed();
       if (hasFailed) {
-        console.log('檢測到載入失敗，5秒後重試...');
         this.updateAllNowPlaying();
       }
     }, 5000);
   }
 
   private hasNowPlayingFailed(): boolean {
-    // 檢查是否有載入失敗的現正播放
-    return Object.values(this.nowPlayingCache).some(cache => 
+    return Object.values(this.nowPlayingCache).some(cache =>
       cache.data === '載入失敗'
     );
   }
 
   private updateAllNowPlaying() {
-    // 獲取所有 BigBRadio 電台
-    const bigbStations = this.customStations.filter(station => 
-      this.isBigBRadioStation(station)
-    );
-    
-    bigbStations.forEach(station => {
-      const channel = station.url.match(/proxy\/(\w+)/)?.[1];
+    // 使用預先快取的 BigBRadio 電台列表
+    for (const station of this.bigbStations) {
+      const channel = this.bigbChannelMap.get(station.id);
       if (channel) {
         this.updateNowPlaying(channel);
       }
-    });
+    }
   }
 
   private updateNowPlaying(channel: string) {
-    // 檢查快取
     const cacheKey = `nowPlaying_${channel}`;
     const now = Date.now();
-    
-    // 強制更新：即使有快取也發送請求，確保資料最新
-    console.log(`開始更新 ${channel} 的現正播放資訊...`);
-    
-    if (this.nowPlayingCache[cacheKey] && 
-        (now - this.nowPlayingCache[cacheKey].timestamp) < this.nowPlayingCacheTimeout) {
-      // 顯示快取資料，但仍發送請求更新
-      console.log('顯示快取資料:', channel, this.nowPlayingCache[cacheKey].data);
-      this.displayNowPlaying(channel, this.nowPlayingCache[cacheKey].data);
-    }
-    
+
     // 使用多個 CORS 代理服務來繞過 CORS 限制
     const originalUrl = `https://bigbradio.net/stream/NowPlaying-${channel.charAt(0).toUpperCase() + channel.slice(1)}.txt`;
-    
-    // 多個代理服務列表 - 更新為更可靠的代理服務
-    const proxyServices = [
-      'https://api.allorigins.win/raw?url=',
-      'https://corsproxy.io/?',
-      'https://api.codetabs.com/v1/proxy?quest=',
-      'https://thingproxy.freeboard.io/fetch/',
-      'https://cors-anywhere.herokuapp.com/'
-    ];
-    
+
     // 遞歸嘗試不同的代理服務
-    this.tryProxy(proxyServices, originalUrl, channel, 0);
+    this.tryProxy(originalUrl, channel, 0);
   }
 
-  private tryProxy(proxyServices: string[], originalUrl: string, channel: string, proxyIndex: number) {
-    if (proxyIndex >= proxyServices.length) {
-      // 所有代理都失敗了
-      console.error('所有代理都失敗，無法獲取 ' + channel + ' 現正播放');
+  private tryProxy(originalUrl: string, channel: string, proxyIndex: number) {
+    if (proxyIndex >= this.proxyServices.length) {
       this.displayNowPlaying(channel, '載入失敗');
       return;
     }
-    
-    let proxyUrl: string;
-    if (proxyIndex === 1) {
-      // allorigins 需要特殊處理
-      proxyUrl = proxyServices[proxyIndex] + encodeURIComponent(originalUrl);
-    } else if (proxyIndex === 4) {
-      // codetabs 需要特殊處理
-      proxyUrl = proxyServices[proxyIndex] + originalUrl;
-    } else {
-      proxyUrl = proxyServices[proxyIndex] + originalUrl;
-    }
-    
-    console.log('嘗試代理服務 ' + (proxyIndex + 1) + ':', proxyUrl);
-    
+
+    const proxy = this.proxyServices[proxyIndex];
+    const proxyUrl = proxy.encode
+      ? proxy.url + encodeURIComponent(originalUrl)
+      : proxy.url + originalUrl;
+
     // 使用 AbortController 實現超時控制
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超時
-    
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     fetch(proxyUrl, {
       method: 'GET',
       headers: {
@@ -617,8 +575,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
       signal: controller.signal
     })
       .then(response => {
-        clearTimeout(timeoutId); // 清除超時計時器
-        console.log(`代理 ${proxyIndex + 1} 回應狀態:`, response.status);
+        clearTimeout(timeoutId);
         if (response.ok) {
           return response.text();
         }
@@ -626,30 +583,17 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
       })
       .then(text => {
         const songInfo = text.trim();
-        console.log(`代理 ${proxyIndex + 1} 成功獲取資料:`, songInfo);
         if (songInfo && songInfo !== '') {
-          // 儲存到快取
-          this.nowPlayingCache[`nowPlaying_${channel}`] = {
-            data: songInfo,
-            timestamp: Date.now()
-          };
           this.displayNowPlaying(channel, songInfo);
-          console.log(`成功更新 ${channel} 現正播放:`, songInfo);
         } else {
           this.displayNowPlaying(channel, '無播放資訊');
         }
-        // 觸發變更檢測
         this.cdr.markForCheck();
       })
       .catch(error => {
-        clearTimeout(timeoutId); // 清除超時計時器
-        if (error.name === 'AbortError') {
-          console.log('代理 ' + (proxyIndex + 1) + ' 請求超時，嘗試下一個');
-        } else {
-          console.log('代理 ' + (proxyIndex + 1) + ' 失敗，嘗試下一個:', error.message);
-        }
+        clearTimeout(timeoutId);
         // 嘗試下一個代理
-        this.tryProxy(proxyServices, originalUrl, channel, proxyIndex + 1);
+        this.tryProxy(originalUrl, channel, proxyIndex + 1);
       });
   }
 
@@ -659,7 +603,6 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
       data: songInfo,
       timestamp: Date.now()
     };
-    // 觸發變更檢測
     this.cdr.markForCheck();
   }
 

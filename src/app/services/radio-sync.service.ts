@@ -32,6 +32,11 @@ export class RadioSyncService {
 
   radioState$ = this.radioState.asObservable();
 
+  /** Synchronous snapshot of the current state (avoids subscribe+unsubscribe anti-pattern) */
+  get currentState(): RadioState {
+    return this.radioState.value;
+  }
+
   private onlineUsersSubject = new BehaviorSubject<number>(0);
   onlineUsers$ = this.onlineUsersSubject.asObservable();
 

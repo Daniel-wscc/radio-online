@@ -65,9 +65,6 @@ var socket = io('https://test.wscc1031.synology.me');
 var isDarkMode = false;
 // 本地重排/同步期間，短暫忽略遠端索引更新
 var suppressIndexUpdatesUntil = 0;
-// 防止快速連續的狀態更新導致播放中斷
-var lastStateUpdateTime = 0;
-var stateUpdateDebounceDelay = 500; // 500ms 防抖延遲
 
 function capturePlaybackSnapshot() {
     try {
@@ -101,6 +98,23 @@ function restorePlaybackSnapshot(snapshot) {
 // 添加全域變數追蹤全螢幕狀態
 var wasFullscreen = false;
 
+// 共用：確保 YouTube 播放器音量與滑桿一致
+function syncYoutubeVolume() {
+    try {
+        var currentVolume = volumeSlider.value / 10;
+        if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
+            youtubePlayer.setVolume(currentVolume * 100);
+            if (currentVolume === 0) {
+                youtubePlayer.mute();
+            } else {
+                youtubePlayer.unMute();
+            }
+        }
+    } catch (error) {
+        console.error('同步音量失敗:', error);
+    }
+}
+
 // DOM 元素
 var audioPlayer = document.getElementById('audioPlayer');
 var volumeSlider = document.getElementById('volumeSlider');
@@ -133,9 +147,8 @@ function init() {
     // 請求當前狀態並設置初始播放
     socket.emit('requestCurrentState');
 
-    // 監聽連接事件
+    // 監聯連接事件
     socket.on('connect', function () {
-        console.log('已連接到伺服器，請求當前狀態');
         socket.emit('requestCurrentState');
     });
 }
@@ -179,17 +192,7 @@ function setupEventListeners() {
 
         // YouTube模式下使用YouTube API控制音量
         if (isYoutubeMode && youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-            try {
-                youtubePlayer.setVolume(volume * 100);
-                if (volume === 0) {
-                    youtubePlayer.mute();
-                } else {
-                    youtubePlayer.unMute();
-                }
-                console.log('設置YouTube音量:', volume * 100, '靜音:', volume === 0);
-            } catch (error) {
-                console.error('設置YouTube音量失敗:', error);
-            }
+            syncYoutubeVolume();
         }
         // Video.js播放器
         else if (window.videoPlayer) {
@@ -404,15 +407,6 @@ function playStation(station) {
             audioPlayer.volume = currentVolume;
             audioPlayer.muted = currentVolume === 0;
 
-            // 添加載入事件監聽器確保音源正確設置
-            audioPlayer.addEventListener('loadstart', function () {
-                console.log('音頻開始載入:', station.name);
-            });
-
-            audioPlayer.addEventListener('canplay', function () {
-                console.log('音頻可以播放:', station.name);
-            });
-
             audioPlayer.play().catch(function (error) {
                 console.error('播放失敗：', error);
             });
@@ -518,18 +512,15 @@ function updateRadioState() {
         }
     };
 
-    // 避免無限循環：只有當播放清單有變化時才發送
-    var currentPlaylistJson = JSON.stringify(playlist);
-    if (currentPlaylistJson !== lastPlaylistJson) {
-        lastPlaylistJson = currentPlaylistJson;
+    // 避免無限循環：只有當播放清單有變化時才發送 addPlaylist
+    if (!playlistsEqual(playlist, lastSentPlaylist)) {
+        lastSentPlaylist = playlist.slice();
         socket.emit('updateRadioState', state);
 
-        // 只有當播放清單不為空時才發送 addPlaylist
         if (isYoutubeMode && playlist.length > 0 && !isLoadingPlaylist) {
             socket.emit('addPlaylist', playlist);
         }
     } else {
-        // 如果播放清單沒有變化，只發送狀態更新，不發送 addPlaylist
         socket.emit('updateRadioState', state);
     }
 }
@@ -591,17 +582,7 @@ function handleStateUpdate(state) {
 
         // 更新播放器音量，但不中斷播放
         if (isYoutubeMode && youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-            try {
-                youtubePlayer.setVolume(state.volume * 100);
-                if (state.volume === 0) {
-                    youtubePlayer.mute();
-                } else {
-                    youtubePlayer.unMute();
-                }
-                console.log('同步YouTube音量:', state.volume * 100, '靜音:', state.volume === 0);
-            } catch (error) {
-                console.error('同步YouTube音量失敗:', error);
-            }
+            syncYoutubeVolume();
         } else if (window.videoPlayer) {
             window.videoPlayer.volume(state.volume);
             window.videoPlayer.muted(state.volume === 0);
@@ -659,29 +640,13 @@ function handleStateUpdate(state) {
             if (oldPlaylist.length === state.youtubeState.playlist.length && oldPlaylist.length > 0) {
                 var oldIds = oldPlaylist.map(function (v) { return v.id; }).sort();
                 var newIds = state.youtubeState.playlist.map(function (v) { return v.id; }).sort();
-                isPlaylistReorder = JSON.stringify(oldIds) === JSON.stringify(newIds);
+                isPlaylistReorder = oldIds.length === newIds.length && oldIds.every(function (id, i) { return id === newIds[i]; });
             }
-
-            // 調試信息
-            console.log('播放清單同步檢查:', {
-                isPlaylistReorder: isPlaylistReorder,
-                isRealPlaylistReorder: isRealPlaylistReorder,
-                currentPlayingVideoId: currentPlayingVideoId,
-                newPlayingVideoId: newPlayingVideoId,
-                oldPlaylistLength: oldPlaylist.length,
-                newPlaylistLength: state.youtubeState.playlist.length,
-                oldCurrentIndex: oldCurrentIndex,
-                newCurrentIndex: state.youtubeState.currentIndex,
-                videoActuallyChanged: oldVideoId !== newVideoId
-            });
 
             // 檢查是否是真正的播放清單重新排序（而不是正常的曲目切換）
             var isRealPlaylistReorder = false;
             if (isPlaylistReorder) {
-                // 檢查播放清單的順序是否真的改變了
-                var oldPlaylistOrder = oldPlaylist.map(function (v) { return v.id; });
-                var newPlaylistOrder = state.youtubeState.playlist.map(function (v) { return v.id; });
-                isRealPlaylistReorder = JSON.stringify(oldPlaylistOrder) !== JSON.stringify(newPlaylistOrder);
+                isRealPlaylistReorder = !playlistsEqual(oldPlaylist, state.youtubeState.playlist);
             }
 
             // 如果檢測到真正的播放清單重新排序，檢查當前播放器狀態
@@ -788,49 +753,16 @@ function handleStateUpdate(state) {
                     if (youtubePlayer && youtubePlayer.playVideo) {
                         youtubePlayer.playVideo();
                     }
-                    // 確保音量設置正確
-                    setTimeout(function () {
-                        try {
-                            var currentVolume = volumeSlider.value / 10;
-                            if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-                                youtubePlayer.setVolume(currentVolume * 100);
-                                if (currentVolume === 0) {
-                                    youtubePlayer.mute();
-                                } else {
-                                    youtubePlayer.unMute();
-                                }
-                                console.log('遠端載入影片時設置音量:', currentVolume * 100, '靜音:', currentVolume === 0);
-                            }
-                        } catch (error) {
-                            console.error('設置遠端載入影片音量失敗:', error);
-                        }
-                    }, 1500);
+                    setTimeout(syncYoutubeVolume, 1500);
                 }, 1000);
             } else if (youtubePlayer && newVideoId && youtubePlayer.getPlayerState &&
                 youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
                 // 如果影片已經載入但沒有播放，直接播放
-                console.log('影片已載入，直接播放:', newVideoId);
                 setTimeout(function () {
                     if (youtubePlayer && youtubePlayer.playVideo) {
                         youtubePlayer.playVideo();
                     }
-                    // 確保音量設置正確
-                    setTimeout(function () {
-                        try {
-                            var currentVolume = volumeSlider.value / 10;
-                            if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-                                youtubePlayer.setVolume(currentVolume * 100);
-                                if (currentVolume === 0) {
-                                    youtubePlayer.mute();
-                                } else {
-                                    youtubePlayer.unMute();
-                                }
-                                console.log('已載入影片播放時設置音量:', currentVolume * 100, '靜音:', currentVolume === 0);
-                            }
-                        } catch (error) {
-                            console.error('設置已載入影片音量失敗:', error);
-                        }
-                    }, 1000);
+                    setTimeout(syncYoutubeVolume, 1000);
                 }, 500);
             } else if (!videoActuallyChanged) {
                 console.log('影片未改變，跳過重新載入:', {
@@ -886,15 +818,6 @@ function handleStateUpdate(state) {
                 const currentVolume = volumeSlider.value / 10;
                 audioPlayer.volume = currentVolume;
                 audioPlayer.muted = currentVolume === 0;
-
-                // 添加載入事件監聽器
-                audioPlayer.addEventListener('loadstart', function () {
-                    console.log('遠端切換音頻開始載入:', state.currentStation.name);
-                });
-
-                audioPlayer.addEventListener('canplay', function () {
-                    console.log('遠端切換音頻可以播放:', state.currentStation.name);
-                });
 
                 if (state.isPlaying) {
                     audioPlayer.play().catch(function (error) {
@@ -956,15 +879,6 @@ function handleInitialState(state) {
             const currentVolume = volumeSlider.value / 10;
             audioPlayer.volume = currentVolume;
             audioPlayer.muted = currentVolume === 0;
-
-            // 添加載入事件監聽器
-            audioPlayer.addEventListener('loadstart', function () {
-                console.log('初始音頻開始載入:', state.currentStation.name);
-            });
-
-            audioPlayer.addEventListener('canplay', function () {
-                console.log('初始音頻可以播放:', state.currentStation.name);
-            });
 
             audioPlayer.play().catch(function (error) {
                 console.log('初始播放失敗:', error);
@@ -1069,42 +983,16 @@ function onPlayerReady(event) {
     };
 
     // 設置初始音量
-    try {
-        var currentVolume = volumeSlider.value / 10;
-        event.target.setVolume(currentVolume * 100);
-        if (currentVolume === 0) {
-            event.target.mute();
-        }
-        console.log('設置YouTube播放器音量:', currentVolume * 100, '靜音:', currentVolume === 0);
-    } catch (error) {
-        console.error('設置初始音量失敗:', error);
-    }
+    syncYoutubeVolume();
 
     // 如果有待播放的視頻，立即播放
     if (currentVideoIndex !== -1 && playlist[currentVideoIndex]) {
-        console.log('開始播放影片:', playlist[currentVideoIndex].id);
-        // 使用 setTimeout 確保播放器完全初始化後再播放
         setTimeout(function () {
             try {
                 event.target.loadVideoById(playlist[currentVideoIndex].id);
-                // 載入後自動播放
                 setTimeout(function () {
                     event.target.playVideo();
-                    // 再次確保音量設置正確
-                    try {
-                        var currentVolume = volumeSlider.value / 10;
-                        if (event.target && typeof event.target.setVolume === 'function') {
-                            event.target.setVolume(currentVolume * 100);
-                            if (currentVolume === 0) {
-                                event.target.mute();
-                            } else {
-                                event.target.unMute();
-                            }
-                            console.log('播放器初始化後再次設置音量:', currentVolume * 100, '靜音:', currentVolume === 0);
-                        }
-                    } catch (error) {
-                        console.error('播放器初始化後設置音量失敗:', error);
-                    }
+                    syncYoutubeVolume();
                 }, 500);
             } catch (error) {
                 console.error('播放影片時發生錯誤:', error);
@@ -1300,32 +1188,15 @@ function playYoutubeIndex(index) {
         var snapshot = capturePlaybackSnapshot();
         currentVideoIndex = index;
         if (youtubePlayer && youtubePlayer.loadVideoById) {
-            console.log('播放影片索引:', index, '影片ID:', playlist[index].id);
             youtubePlayer.loadVideoById(playlist[index].id);
-            // 載入後自動播放
             setTimeout(function () {
                 if (youtubePlayer && youtubePlayer.playVideo) {
                     youtubePlayer.playVideo();
                 }
-                // 確保音量設置正確 - 增加延遲確保播放器完全載入
                 setTimeout(function () {
-                    try {
-                        var currentVolume = volumeSlider.value / 10;
-                        if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-                            youtubePlayer.setVolume(currentVolume * 100);
-                            if (currentVolume === 0) {
-                                youtubePlayer.mute();
-                            } else {
-                                youtubePlayer.unMute();
-                            }
-                            console.log('手動切換影片時設置音量:', currentVolume * 100, '靜音:', currentVolume === 0);
-                        }
-                        // 恢復進度（若仍為同一支影片）
-                        setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 200);
-                    } catch (error) {
-                        console.error('設置手動切換影片音量失敗:', error);
-                    }
-                }, 1000); // 增加延遲到1秒
+                    syncYoutubeVolume();
+                    setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 200);
+                }, 1000);
             }, 500);
         }
         updatePlaylistUI();
@@ -1388,23 +1259,7 @@ function onPlayerStateChange(event) {
     }
     // 當新視頻開始播放時
     else if (event.data === YT.PlayerState.PLAYING) {
-        // 確保音量設置正確 - 使用更長的延遲確保播放器完全載入
-        setTimeout(function () {
-            try {
-                var currentVolume = volumeSlider.value / 10;
-                if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-                    youtubePlayer.setVolume(currentVolume * 100);
-                    if (currentVolume === 0) {
-                        youtubePlayer.mute();
-                    } else {
-                        youtubePlayer.unMute();
-                    }
-                    console.log('新影片播放時設置音量:', currentVolume * 100, '靜音:', currentVolume === 0);
-                }
-            } catch (error) {
-                console.error('設置新影片音量失敗:', error);
-            }
-        }, 1500); // 增加延遲到1.5秒確保播放器完全載入
+        setTimeout(syncYoutubeVolume, 1500);
 
         // 如果之前是全螢幕，嘗試恢復全螢幕狀態
         if (wasFullscreen) {
@@ -1465,12 +1320,21 @@ function handleFullscreenChange() {
         document.msFullscreenElement);
 }
 
+// 比較兩個播放清單是否相同（避免 JSON.stringify 效能問題）
+function playlistsEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+        if (a[i].id !== b[i].id) return false;
+    }
+    return true;
+}
+
 // 在文檔加載完成後初始化
 document.addEventListener('DOMContentLoaded', init);
 
 // 添加一個變數來追蹤是否正在載入播放清單
 var isLoadingPlaylist = false;
-var lastPlaylistJson = '';
+var lastSentPlaylist = [];
 
 // 監聽從伺服器載入的播放清單
 socket.on('playlistLoaded', function (data) {
@@ -1486,10 +1350,9 @@ socket.on('playlistLoaded', function (data) {
         });
 
         // 只有當播放清單有變化時才更新
-        var newPlaylistJson = JSON.stringify(newPlaylist);
-        if (newPlaylistJson !== lastPlaylistJson) {
+        if (!playlistsEqual(playlist, newPlaylist)) {
             playlist = newPlaylist;
-            lastPlaylistJson = newPlaylistJson;
+            lastSentPlaylist = playlist.slice();
 
             // 如果目前沒有播放任何影片且播放清單不為空，開始播放第一首
             if (currentVideoIndex === -1 && playlist.length > 0) {
@@ -1513,7 +1376,7 @@ socket.on('playlistCleared', function (data) {
         // 本地也清除播放清單
         playlist = [];
         currentVideoIndex = -1;
-        lastPlaylistJson = JSON.stringify(playlist);
+        lastSentPlaylist = [];
 
         // 停止 YouTube 播放
         if (youtubePlayer && youtubePlayer.stopVideo) {

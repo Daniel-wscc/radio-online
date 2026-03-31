@@ -13,7 +13,7 @@ RUN mkdir -p /app/data && \
 RUN npm init -y && \
     npm install --save express socket.io cors @socket.io/admin-ui better-sqlite3 && \
     npm install -g typescript && \
-    npm install --save-dev @types/node @types/express @types/socket.io @types/cors ts-node && \
+    npm install --save-dev @types/node @types/express @types/socket.io @types/cors @types/better-sqlite3 ts-node && \
     npm install -g nodemon concurrently
 
 # 建立 tsconfig.json
@@ -23,7 +23,8 @@ RUN echo '{\
     "esModuleInterop": true,\
     "allowSyntheticDefaultImports": true,\
     "target": "es6",\
-    "moduleResolution": "node",\
+    "moduleResolution": "node10",\
+    "ignoreDeprecations": "6.0",\
     "sourceMap": true,\
     "outDir": "."\
   },\

@@ -1,4 +1,4 @@
-import { Component, OnInit, ViewChild, ChangeDetectorRef, AfterViewInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, ViewChild, ChangeDetectorRef, AfterViewInit, OnDestroy, DestroyRef, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -12,6 +12,7 @@ import { ThemeSwitcherComponent } from '../shared/theme-switcher/theme-switcher.
 import { take } from 'rxjs/operators';
 import { Subject } from 'rxjs';
 import { debounceTime } from 'rxjs/operators';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-youtube-radio',
@@ -36,12 +37,12 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   currentIndex: number = -1;
 
   playerConfig: YT.PlayerVars = {
-    autoplay: 0,  // 不自動播放
-    controls: 1,  // 顯示控制項
-    modestbranding: 1,  // 簡化品牌標誌
-    rel: 0,  // 不顯示相關影片
-    fs: 1,  // 允許全螢幕
-    enablejsapi: 1  // 啟用 JavaScript API
+    autoplay: 0,
+    controls: 1,
+    modestbranding: 1,
+    rel: 0,
+    fs: 1,
+    enablejsapi: 1
   };
 
   isDarkTheme = false;
@@ -49,12 +50,12 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   videoWidth: number | undefined;
   videoHeight: number | undefined;
 
-  private isPlayerReady = false;  // 新增此變數追蹤播放器狀態
-  private maxRetries = 5;  // 最大重試次數
-  private retryCount = 0;  // 當前重試次數
-  // 在本地重排播放清單後，短暫忽略遠端索引/影片ID更新
+  private isPlayerReady = false;
+  private maxRetries = 5;
+  private retryCount = 0;
   private suppressIndexUpdatesUntil = 0;
-  // 記錄播放位置的快照（用於重排時恢復進度）
+  private destroyRef = inject(DestroyRef);
+
   private capturePlaybackSnapshot() {
     try {
       const player = this.getCurrentPlayer();
@@ -84,20 +85,20 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   isChatOpen = false;
-  isPlayerExpanded = false;  // 播放器展開狀態
-  isPlaying = false;  // 播放狀態
-  volume = 1; // 音量 0-1
-  isMuted = false; // 靜音狀態
-  Math = Math; // 讓模板可以使用Math函數
+  isPlayerExpanded = false;
+  isPlaying = false;
+  volume = 1;
+  isMuted = false;
+  Math = Math;
 
   // 音量防抖相關
   private volumeChangeSubject = new Subject<number>();
-  private volumeDebounceTime = 300; // 300ms 防抖延遲
+  private volumeDebounceTime = 300;
 
   // 播放清單管理相關
   availablePlaylists: any[] = [];
-  playlistThumbnails: { [playlistId: number]: string[] } = {}; // 儲存播放清單縮圖
-  playlistItemCounts: { [playlistId: number]: number } = {}; // 儲存播放清單歌曲數量
+  playlistThumbnails: { [playlistId: number]: string[] } = {};
+  playlistItemCounts: { [playlistId: number]: number } = {};
   showAddToPlaylistModal = false;
   selectedVideoForPlaylist: { id: string, title: string } | null = null;
 
@@ -106,12 +107,12 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   toastType: 'success' | 'error' | 'info' = 'info';
   showToast = false;
 
-
+  // resize handler（存為 property 以便正確移除）
+  private boundOnResize = this.onResize.bind(this);
 
   // 獲取當前播放器
   private getCurrentPlayer(): YouTubePlayer | null {
     if (!this.youtubePlayer) {
-      console.warn('YouTube Player 尚未初始化');
       return null;
     }
     return this.youtubePlayer;
@@ -125,134 +126,88 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   ) {
     // 設置音量防抖訂閱
     this.volumeChangeSubject.pipe(
-      debounceTime(this.volumeDebounceTime)
+      debounceTime(this.volumeDebounceTime),
+      takeUntilDestroyed(this.destroyRef)
     ).subscribe((volume: number) => {
       this.applyVolumeChange(volume);
     });
 
     // 訂閱狀態更新
-    this.radioSync.radioState$.subscribe((state: RadioState) => {
+    this.radioSync.radioState$.pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe((state: RadioState) => {
       if (state.youtubeState) {
         const youtubeState = state.youtubeState;
 
         // 避免無限循環：只有當播放清單有變化時才更新
         const newPlaylist = youtubeState.playlist || [];
-        const playlistChanged = JSON.stringify(this.playlist) !== JSON.stringify(newPlaylist);
-        
-        console.log('狀態更新檢查:', {
-          currentPlaylistLength: this.playlist.length,
-          newPlaylistLength: newPlaylist.length,
-          playlistChanged: playlistChanged,
-          currentIndex: youtubeState.currentIndex,
-          currentVideoId: youtubeState.currentVideoId
-        });
+        const playlistChanged = !this.playlistsEqual(this.playlist, newPlaylist);
 
         setTimeout(() => {
           if (playlistChanged) {
-            console.log('播放清單有變化，更新中...', {
-              from: this.playlist.length,
-              to: newPlaylist.length
-            });
-            
             // 保存當前播放狀態
             const wasPlaying = this.isPlaying;
             const oldCurrentIndex = this.currentIndex;
             const oldCurrentVideoId = this.currentVideoId;
-            
+
             this.playlist = [...newPlaylist];
-            
+
             // 如果播放清單被清空，需要重置相關狀態
             if (this.playlist.length === 0) {
               this.currentVideoId = null;
               this.currentIndex = -1;
               this.isPlayerReady = false;
-              console.log('播放清單已清空，重置播放器狀態');
             } else {
               // 如果當前索引仍然有效，保持當前播放狀態
               if (oldCurrentIndex >= 0 && oldCurrentIndex < this.playlist.length) {
-                // 檢查當前影片是否還在播放清單中
                 const currentVideoStillExists = this.playlist[oldCurrentIndex].id === oldCurrentVideoId;
-                if (currentVideoStillExists) {
-                  // 保持當前播放狀態，不重置
-                  console.log('當前影片仍在播放清單中，保持播放狀態');
-                } else {
-                  // 當前影片不在原位置，嘗試找到它
+                if (!currentVideoStillExists) {
                   const newIndex = this.playlist.findIndex(video => video.id === oldCurrentVideoId);
                   if (newIndex !== -1) {
                     this.currentIndex = newIndex;
-                    console.log('找到當前影片在新位置:', newIndex);
                   } else {
-                    // 找不到當前影片，重置到第一首
                     this.currentIndex = 0;
                     this.currentVideoId = this.playlist[0].id;
-                    console.log('當前影片不在播放清單中，重置到第一首');
                   }
                 }
               } else if (this.currentIndex === -1 && this.playlist.length > 0) {
-                // 如果沒有當前索引但有播放清單，設置第一首
                 this.currentIndex = 0;
                 this.currentVideoId = this.playlist[0].id;
-                console.log('設置第一首為當前播放');
               }
-              
-              // 避免空播放清單時發送 addPlaylist
-              this.syncPlaylistOnly(); // 只同步播放清單，不發送播放狀態
+
+              this.syncPlaylistOnly();
             }
-          } else {
-            console.log('播放清單無變化，跳過更新');
           }
 
-          // 檢查是否需要更新當前播放的影片
           // 本地剛剛做了重排時，短暫忽略遠端索引/影片ID更新，避免跳動
           if (Date.now() < this.suppressIndexUpdatesUntil) {
-            console.log('本地重排保護期內，忽略遠端索引/影片ID更新');
+            // 保護期內，忽略遠端索引更新
           } else {
-          const indexChanged = this.currentIndex !== youtubeState.currentIndex;
-          const videoIdChanged = this.currentVideoId !== youtubeState.currentVideoId;
+            const indexChanged = this.currentIndex !== youtubeState.currentIndex;
+            const videoIdChanged = this.currentVideoId !== youtubeState.currentVideoId;
 
-          // 只有在確實需要切換影片時才更新，避免不必要的重置
-          if (indexChanged || videoIdChanged) {
-            const oldIndex = this.currentIndex;
-            const oldVideoId = this.currentVideoId;
-            
-            this.currentIndex = youtubeState.currentIndex;
+            if (indexChanged || videoIdChanged) {
+              const oldVideoId = this.currentVideoId;
 
-            // 如果伺服器傳來的 currentVideoId 是 null，但我們有播放清單且索引有效，
-            // 則從播放清單中獲取正確的 videoId
-            if (youtubeState.currentVideoId) {
-              this.currentVideoId = youtubeState.currentVideoId;
-            } else if (this.currentIndex >= 0 && this.currentIndex < this.playlist.length) {
-              this.currentVideoId = this.playlist[this.currentIndex].id;
-              console.log('從播放清單中獲取影片ID:', this.currentVideoId, '索引:', this.currentIndex);
-            } else {
-              this.currentVideoId = null;
-              console.log('重置影片ID為null，索引:', this.currentIndex, '播放清單長度:', this.playlist.length);
+              this.currentIndex = youtubeState.currentIndex;
+
+              if (youtubeState.currentVideoId) {
+                this.currentVideoId = youtubeState.currentVideoId;
+              } else if (this.currentIndex >= 0 && this.currentIndex < this.playlist.length) {
+                this.currentVideoId = this.playlist[this.currentIndex].id;
+              } else {
+                this.currentVideoId = null;
+              }
+
+              const videoActuallyChanged = oldVideoId !== this.currentVideoId;
+              if (videoActuallyChanged && youtubeState.isYoutubeMode && this.currentVideoId && this.isPlayerReady && !this.isComponentInitializing) {
+                this.safePlayVideo();
+              }
             }
-
-            // 只有在影片真的改變時才觸發播放
-            const videoActuallyChanged = oldVideoId !== this.currentVideoId;
-            if (videoActuallyChanged && youtubeState.isYoutubeMode && this.currentVideoId && this.isPlayerReady && !this.isComponentInitializing) {
-              console.log('影片確實改變，觸發播放:', {
-                oldVideoId: oldVideoId,
-                newVideoId: this.currentVideoId,
-                oldIndex: oldIndex,
-                newIndex: this.currentIndex
-              });
-              this.safePlayVideo();
-            } else if (!videoActuallyChanged) {
-              console.log('影片未改變，跳過播放觸發:', {
-                videoId: this.currentVideoId,
-                index: this.currentIndex
-              });
-            }
-            // 如果播放器還沒準備好，但有影片要播放，等播放器準備好後會自動播放
-          }
           }
 
           // 如果切換到 YouTube 模式且狀態顯示正在播放，確保播放器開始播放
-          // 但只有在組件初始化完成後才自動播放
           if (youtubeState.isYoutubeMode && state.isPlaying && this.currentVideoId && this.isPlayerReady && !this.isComponentInitializing) {
-            console.log('播放狀態更新觸發播放');
             this.safePlayVideo();
           }
 
@@ -261,7 +216,6 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
             this.volume = state.volume;
             this.isMuted = this.volume === 0;
 
-            // 如果播放器已準備就緒，立即應用音量設置
             const currentPlayer = this.getCurrentPlayer();
             if (currentPlayer && this.isPlayerReady) {
               try {
@@ -271,7 +225,6 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
                 } else {
                   currentPlayer.unMute();
                 }
-                console.log('同步音量到YouTube播放器:', this.volume * 100, '靜音:', this.isMuted);
               } catch (error) {
                 console.error('同步音量失敗:', error);
               }
@@ -284,38 +237,37 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     });
 
     // 監聽聊天室狀態
-    this.chatService.chatVisible$.subscribe(visible => {
+    this.chatService.chatVisible$.pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(visible => {
       this.isChatOpen = visible;
       this.cdr.markForCheck();
     });
 
     // 監聽從伺服器載入的播放清單
-    this.radioSync.onPlaylistLoaded().subscribe(data => {
+    this.radioSync.onPlaylistLoaded().pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(data => {
       if (Array.isArray(data) && !this.isLoadingPlaylist) {
         this.isLoadingPlaylist = true;
 
-        // 將從伺服器載入的播放清單轉換為正確的格式
         const newPlaylist = data.map(item => ({
           id: item.videoId,
           title: item.title || item.videoId
         }));
 
-        // 只有當播放清單有變化時才更新
-        if (JSON.stringify(this.playlist) !== JSON.stringify(newPlaylist)) {
+        if (!this.playlistsEqual(this.playlist, newPlaylist)) {
           this.playlist = newPlaylist;
 
-          // 如果目前沒有播放任何影片且播放清單不為空，開始播放第一首
           if (this.currentIndex === -1 && this.playlist.length > 0) {
             this.playIndex(0);
           } else if (this.currentIndex >= 0 && this.currentIndex < this.playlist.length) {
-            // 如果有有效的索引但沒有 currentVideoId，從播放清單中獲取
             if (!this.currentVideoId) {
               this.currentVideoId = this.playlist[this.currentIndex].id;
-              console.log('載入播放清單後設置影片ID:', this.currentVideoId, '索引:', this.currentIndex);
             }
-            this.syncPlaylistOnly(); // 只同步播放清單，不發送播放狀態
+            this.syncPlaylistOnly();
           } else {
-            this.syncPlaylistOnly(); // 只同步播放清單，不發送播放狀態
+            this.syncPlaylistOnly();
           }
         }
 
@@ -328,29 +280,32 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     });
 
     // 監聽播放清單列表載入
-    this.radioSync.onPlaylistsLoaded().subscribe(data => {
+    this.radioSync.onPlaylistsLoaded().pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(data => {
       if (Array.isArray(data)) {
         this.availablePlaylists = data;
-        // 載入每個播放清單的縮圖
         this.loadPlaylistThumbnails();
         this.cdr.markForCheck();
       }
     });
 
     // 監聽歌曲新增到播放清單的結果
-    this.radioSync.onSongAddedToPlaylist().subscribe(result => {
+    this.radioSync.onSongAddedToPlaylist().pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(result => {
       if (result.success) {
-        // 使用 toast 通知替代 alert
         this.showToastMessage('歌曲已成功加入播放清單！', 'success');
         this.closeAddToPlaylistModal();
       } else {
-        // 失敗時使用 toast 通知
         this.showToastMessage('加入播放清單失敗：' + result.error, 'error');
       }
     });
 
     // 監聽播放清單詳情載入（用於獲取縮圖）
-    this.radioSync.onPlaylistDetailLoaded().subscribe(data => {
+    this.radioSync.onPlaylistDetailLoaded().pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(data => {
       if (data.playlist && data.items) {
         const playlistId = data.playlist.id;
         const thumbnails = data.items.slice(0, 4).map((item: any) =>
@@ -363,20 +318,18 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     });
 
     // 監聽播放清單清除事件
-    this.radioSync.onPlaylistCleared().subscribe(data => {
+    this.radioSync.onPlaylistCleared().pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(data => {
       if (data.success) {
-        console.log('伺服器已清除播放清單');
-        // 本地也清除播放清單
         this.playlist = [];
         this.currentIndex = -1;
         this.currentVideoId = null;
-        
-        // 停止 YouTube 播放
+
         if (this.youtubePlayer && this.youtubePlayer.stopVideo) {
           this.youtubePlayer.stopVideo();
         }
-        
-        // 更新 UI
+
         this.cdr.markForCheck();
       } else {
         console.error('清除播放清單失敗:', data.error);
@@ -384,20 +337,23 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  // 添加一個標誌來追蹤是否正在載入播放清單
-  private isLoadingPlaylist = false;
+  /** 比較兩個播放清單是否相同（避免 JSON.stringify） */
+  private playlistsEqual(a: Array<{ id: string, title?: string }>, b: Array<{ id: string, title?: string }>): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i].id !== b[i].id) return false;
+    }
+    return true;
+  }
 
-  // 添加一個標誌來追蹤組件是否剛初始化
+  private isLoadingPlaylist = false;
   private isComponentInitializing = true;
 
   ngOnInit() {
-    console.log('YouTube組件初始化');
-
     // 載入 YouTube IFrame API - 確保只載入一次
     this.loadYouTubeAPI();
 
     // 當切換到YouTube模式時，從伺服器載入播放清單
-    // 避免無限循環：只在初始化時載入一次
     if (!this.isLoadingPlaylist) {
       this.isLoadingPlaylist = true;
       this.radioSync.loadPlaylist();
@@ -409,38 +365,27 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     // 載入可用的播放清單用於快速訪問
     this.loadAvailablePlaylists();
 
-    // 延迟设置初始化完成标志，避免在状态同步时重复播放
+    // 延遲設置初始化完成標誌，避免在狀態同步時重複播放
     setTimeout(() => {
       this.isComponentInitializing = false;
-      console.log('YouTube組件初始化完成');
     }, 2000);
   }
 
   // 載入 YouTube IFrame API
   private loadYouTubeAPI(): void {
-    // 檢查是否已經載入
     if ((window as any).YT && (window as any).YT.Player) {
-      console.log('YouTube API 已經載入');
       return;
     }
 
-    // 檢查是否正在載入
     if (document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
-      console.log('YouTube API 正在載入中');
       return;
     }
 
-    console.log('開始載入 YouTube API');
     const tag = document.createElement('script');
     tag.src = 'https://www.youtube.com/iframe_api';
     tag.async = true;
     tag.defer = true;
-    
-    // 添加載入完成的回調
-    tag.onload = () => {
-      console.log('YouTube API script 載入完成');
-    };
-    
+
     tag.onerror = (error) => {
       console.error('YouTube API script 載入失敗:', error);
     };
@@ -455,7 +400,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     this.onResize();
-    window.addEventListener('resize', this.onResize.bind(this));
+    window.addEventListener('resize', this.boundOnResize);
 
     // 初始化播放器位置
     setTimeout(() => {
@@ -467,9 +412,8 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       const player = this.getCurrentPlayer();
       console.log('目前元件記錄音量 (this.volume):', this.volume);
       console.log('目前元件記錄靜音狀態 (this.isMuted):', this.isMuted);
-      
+
       if (player) {
-        // YouTube Player API 的 getVolume 返回 0-100
         const playerVolume = (player as any).getVolume ? (player as any).getVolume() : 'Unknown';
         const playerMuted = (player as any).isMuted ? (player as any).isMuted() : 'Unknown';
         console.log('實際播放器音量 (0-100):', playerVolume);
@@ -481,12 +425,10 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onResize(): void {
-    // 設定播放器的基本尺寸
     this.videoWidth = 640;
     this.videoHeight = 360;
     this.cdr.markForCheck();
 
-    // 重新計算播放器位置
     setTimeout(() => {
       this.updatePlayerPosition();
     }, 100);
@@ -494,57 +436,44 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
 
   async loadPlaylist() {
     if (!this.urlInput) return;
-    
+
     const urls = this.urlInput.split('\n').filter(url => url.trim());
     const newVideos: Array<{ id: string, title?: string }> = [];
-    
-    // 批次處理所有 URL
+
     const videoIds = urls
       .map(url => this.extractVideoId(url))
       .filter(id => id) as string[];
 
     try {
-      // 批次獲取所有影片標題
       const titles = await Promise.all(
         videoIds.map(id => this.getVideoTitle(id))
       );
 
-      // 組合結果
       newVideos.push(...videoIds.map((id, index) => ({
         id,
         title: titles[index] || id
       })));
 
-      // 記錄播放清單是否原本為空
       const wasEmpty = this.playlist.length === 0;
 
-      // 將新影片加入到現有播放清單的最後
       this.playlist = [...this.playlist, ...newVideos];
       this.urlInput = '';
 
-      // 觸發變更檢測，確保播放器能正確渲染
       this.cdr.markForCheck();
 
-      // 如果播放清單原本為空，現在有內容了，需要等待播放器初始化
       if (wasEmpty && this.playlist.length > 0) {
-        console.log('播放清單從空變為非空，等待播放器初始化');
-        // 重置播放器就緒狀態，等待新播放器初始化
         this.isPlayerReady = false;
-        // 設置第一個影片為當前影片
         this.currentVideoId = this.playlist[0].id;
         this.currentIndex = 0;
-        
-        // 等待 DOM 更新後再觸發變更檢測
+
         setTimeout(() => {
           this.cdr.detectChanges();
         }, 100);
       } else if (this.currentIndex === -1 && this.playlist.length > 0) {
-        // 如果目前沒有播放任何影片且播放清單不為空，設置第一首但不自動播放
         this.currentVideoId = this.playlist[0].id;
         this.currentIndex = 0;
       }
 
-      // 載入播放清單後只需要同步播放清單，不觸發播放狀態更新
       this.syncPlaylistOnly();
     } catch (error) {
       console.error('Error processing URLs:', error);
@@ -567,9 +496,8 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     this.currentVideoId = null;
     this.currentIndex = -1;
     this.urlInput = '';
-    this.isPlayerReady = false; // 重置播放器狀態
+    this.isPlayerReady = false;
 
-    // 觸發變更檢測，確保 UI 正確更新
     this.cdr.markForCheck();
 
     this.syncYoutubeState();
@@ -586,19 +514,14 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
 
   playIndex(index: number) {
     if (index >= 0 && index < this.playlist.length) {
-      console.log('播放索引:', index, '影片ID:', this.playlist[index].id);
       this.currentIndex = index;
       this.currentVideoId = this.playlist[index].id;
 
-      // 重置重試計數器
       this.retryCount = 0;
 
       if (this.isPlayerReady) {
         this.safePlayVideo();
-      } else {
-        console.log('播放器尚未準備就緒，等待播放器初始化完成');
       }
-      // 切換播放索引時只同步播放狀態，不發送播放清單
       this.syncPlaybackState();
     }
   }
@@ -616,7 +539,6 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     if (this.isPlayerReady) {
       this.safePlayVideo();
     }
-    // 切換影片時只同步播放狀態，不發送播放清單
     this.syncPlaybackState();
   }
 
@@ -634,15 +556,12 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       } else {
         this.currentVideoId = null;
         this.currentIndex = -1;
-        // 清空播放清單時需要發送 addPlaylist 來同步
         this.syncYoutubeState();
       }
     } else if (index < this.currentIndex) {
       this.currentIndex--;
-      // 只是調整索引，不需要發送 addPlaylist
       this.syncPlaylistOnly();
     } else {
-      // 移除其他項目，需要同步播放清單
       this.syncYoutubeState();
     }
   }
@@ -650,9 +569,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   onPlayerStateChange(event: YT.OnStateChangeEvent) {
     const playerState = event.target.getPlayerState();
 
-    // 更新播放狀態
     this.isPlaying = playerState === YT.PlayerState.PLAYING;
-    console.log('播放器狀態變化:', playerState, '是否播放中:', this.isPlaying);
 
     // 當狀態變為 PLAYING 時，確保音量正確
     if (playerState === YT.PlayerState.PLAYING) {
@@ -660,23 +577,20 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
         const player = this.getCurrentPlayer();
         if (player) {
           try {
-            // 使用目前記錄的音量設置
             player.setVolume(this.volume * 100);
             if (this.isMuted) {
               player.mute();
             } else {
               player.unMute();
             }
-            console.log('播放時強制同步音量:', this.volume * 100, '靜音:', this.isMuted);
           } catch (error) {
             console.error('播放時同步音量失敗:', error);
           }
         }
-      }, 500); // 延遲執行以確保播放器就緒
+      }, 500);
     }
 
     if (playerState === YT.PlayerState.ENDED) {
-      console.log('影片播放結束，切換到下一首');
       if (this.currentIndex >= this.playlist.length - 1) {
         this.currentIndex = 0;
       } else {
@@ -687,28 +601,21 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       if (this.isPlayerReady) {
         this.safePlayVideo();
       }
-      // 只在切換影片時才同步狀態，不發送播放清單
       this.syncPlaybackState();
     } else {
-      // 對於其他狀態變化（播放、暫停等），只更新播放狀態，不發送播放清單
       this.syncPlaybackState();
     }
   }
 
-  // 修改 syncYoutubeState 方法，添加參數控制是否發送 addPlaylist
   private syncYoutubeState(sendAddPlaylist = true) {
-    // 如果組件正在初始化，不發送狀態更新，避免中斷播放
     if (this.isComponentInitializing) {
-      console.log('組件初始化中，跳過狀態更新');
       return;
     }
 
-    // 只有當播放清單不為空且需要發送 addPlaylist 時才發送
     if (sendAddPlaylist && this.playlist.length > 0) {
       this.radioSync.addPlaylist(this.playlist);
     }
 
-    // 更新狀態並設置為YouTube模式
     const newState = {
       isPlaying: this.isPlaying,
       volume: this.isMuted ? 0 : this.volume,
@@ -720,68 +627,25 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     };
 
-    console.log('發送YouTube狀態更新:', newState);
     this.radioSync.updateState(newState);
   }
 
-  // 新增：只同步播放清單，不觸發播放狀態更新
   private syncPlaylistOnly() {
-    // 如果組件正在初始化，不發送狀態更新，避免中斷播放
     if (this.isComponentInitializing) {
-      console.log('組件初始化中，跳過播放清單同步');
       return;
     }
 
-    // 只發送播放清單，不發送播放狀態
     if (this.playlist.length > 0) {
       this.radioSync.addPlaylist(this.playlist);
     }
-
-    console.log('只同步播放清單，不更新播放狀態');
   }
 
-
-  // 新增：只同步播放索引和影片ID，不發送播放清單
+  // 同步播放索引和影片ID（也用於音量同步），不發送播放清單
   private syncPlaybackState() {
-    // 如果組件正在初始化，不發送狀態更新，避免中斷播放
     if (this.isComponentInitializing) {
-      console.log('組件初始化中，跳過播放狀態更新');
       return;
     }
 
-    console.log('發送播放狀態更新（不含播放清單）:', {
-      isPlaying: this.isPlaying,
-      volume: this.isMuted ? 0 : this.volume,
-      currentIndex: this.currentIndex,
-      currentVideoId: this.currentVideoId
-    });
-    
-    this.radioSync.updateLightweightState({
-      isPlaying: this.isPlaying,
-      volume: this.isMuted ? 0 : this.volume,
-      youtubeState: {
-        isYoutubeMode: true,
-        currentIndex: this.currentIndex,
-        currentVideoId: this.currentVideoId
-      }
-    });
-  }
-
-  // 新增：只同步音量狀態，不發送播放清單
-  private syncVolumeState() {
-    // 如果組件正在初始化，不發送狀態更新，避免中斷播放
-    if (this.isComponentInitializing) {
-      console.log('組件初始化中，跳過音量狀態更新');
-      return;
-    }
-
-    console.log('發送音量狀態更新（不含播放清單）:', {
-      isPlaying: this.isPlaying,
-      volume: this.isMuted ? 0 : this.volume,
-      currentIndex: this.currentIndex,
-      currentVideoId: this.currentVideoId
-    });
-    
     this.radioSync.updateLightweightState({
       isPlaying: this.isPlaying,
       volume: this.isMuted ? 0 : this.volume,
@@ -794,16 +658,12 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onPlayerReady(event: YT.PlayerEvent) {
-    console.log('YouTube 播放器 onPlayerReady 被調用');
-    
-    // 確保播放器實例存在
     if (!event.target) {
       console.error('播放器實例不存在');
       return;
     }
 
     this.isPlayerReady = true;
-    console.log('YouTube 播放器已準備就緒，當前影片ID:', this.currentVideoId, '播放狀態:', this.isPlaying);
 
     // 設置初始音量
     try {
@@ -811,14 +671,11 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       if (this.isMuted) {
         event.target.mute();
       }
-      console.log('設置YouTube播放器音量:', this.volume * 100, '靜音:', this.isMuted);
     } catch (error) {
       console.error('設置初始音量失敗:', error);
     }
 
-    // 確保播放清單存在且有內容
     if (this.playlist.length === 0) {
-      console.log('播放器已準備就緒，但沒有播放清單');
       return;
     }
 
@@ -826,9 +683,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!this.currentVideoId && this.playlist.length > 0) {
       this.currentVideoId = this.playlist[0].id;
       this.currentIndex = 0;
-      console.log('設置第一個影片為當前影片:', this.currentVideoId);
-      
-      // 使用 cueVideoById 而不是 loadVideoById，這樣不會自動播放
+
       try {
         event.target.cueVideoById(this.currentVideoId);
       } catch (error) {
@@ -837,37 +692,24 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     if (this.currentVideoId) {
-      // 獲取影片標題但不自動播放
       this.getVideoTitle(this.currentVideoId!).then(title => {
         if (title && this.currentIndex !== -1 && this.currentIndex < this.playlist.length) {
           this.playlist[this.currentIndex].title = title;
-          // 更新標題時不需要發送 addPlaylist
           this.syncPlaylistOnly();
         }
       });
 
       // 只有在明確需要播放時才開始播放
-      // 檢查當前的播放狀態，如果應該播放則播放
       setTimeout(() => {
         try {
-          // 從RadioState檢查是否應該播放
-          this.radioSync.radioState$.pipe(
-            // 只取第一個值
-            take(1)
-          ).subscribe(state => {
-            if (state.youtubeState?.isYoutubeMode && state.isPlaying) {
-              console.log('根據狀態開始播放影片:', this.currentVideoId);
-              event.target.playVideo();
-            } else {
-              console.log('根據狀態不播放影片，當前播放狀態:', state.isPlaying);
-            }
-          });
+          const state = this.radioSync.currentState;
+          if (state.youtubeState?.isYoutubeMode && state.isPlaying) {
+            event.target.playVideo();
+          }
         } catch (error) {
           console.error('檢查播放狀態時發生錯誤:', error);
         }
       }, 100);
-    } else {
-      console.log('播放器已準備就緒，等待用戶添加影片');
     }
   }
 
@@ -875,23 +717,10 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     const currentPlayer = this.getCurrentPlayer();
     if (currentPlayer && this.isPlayerReady && this.currentVideoId) {
       try {
-        // 檢查當前播放狀態
         const playerState = currentPlayer.getPlayerState();
-        console.log('當前播放器狀態:', playerState, '影片ID:', this.currentVideoId);
 
-        // YouTube Player States:
-        // -1 (未開始)
-        // 0 (結束)
-        // 1 (正在播放)
-        // 2 (暫停)
-        // 3 (緩衝中)
-        // 5 (已插入影片)
-
-        if (playerState !== 1 && playerState !== 3) {  // 不是正在播放或緩衝中
-          console.log('開始播放影片');
+        if (playerState !== 1 && playerState !== 3) {
           currentPlayer.playVideo();
-        } else {
-          console.log('影片已在播放或緩衝中');
         }
         this.retryCount = 0;
       } catch (error) {
@@ -906,20 +735,13 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     } else if (this.retryCount < this.maxRetries && this.currentVideoId) {
       this.retryCount++;
-      console.log(`播放器未就緒，第 ${this.retryCount} 次重試 - 播放器存在:`, !!currentPlayer, '播放器就緒:', this.isPlayerReady, '影片ID:', this.currentVideoId);
       setTimeout(() => this.safePlayVideo(), 1000);
     } else {
-      if (!this.currentVideoId) {
-        console.error('無法播放：沒有影片ID');
-      } else {
-        console.error('播放器初始化失敗，已達最大重試次數');
-      }
       this.retryCount = 0;
     }
   }
 
   onDrop(event: CdkDragDrop<any[]>) {
-    // 重排前記錄當前播放位置
     const playbackSnapshot = this.capturePlaybackSnapshot();
     // 更新當前播放索引
     if (this.currentIndex === event.previousIndex) {
@@ -930,23 +752,18 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       this.currentIndex++;
     }
 
-    // 移動項目
     moveItemInArray(this.playlist, event.previousIndex, event.currentIndex);
-    // 設置本地重排保護期：在短時間內忽略遠端索引更新，避免跳動
-    this.suppressIndexUpdatesUntil = Date.now() + 800; // 800ms 保護期
+    // 設置本地重排保護期
+    this.suppressIndexUpdatesUntil = Date.now() + 800;
 
-    // 拖拽重新排序只需要同步播放清單，不觸發播放狀態更新
     this.syncPlaylistOnly();
-
-    // 輕量同步目前索引與影片ID到伺服器，避免其他端出現不同步
     this.syncPlaybackState();
 
-    // 恢復播放進度（若仍為同一影片）
+    // 恢復播放進度
     setTimeout(() => this.restorePlaybackSnapshot(playbackSnapshot), 100);
   }
 
   shufflePlaylist() {
-    // 保存當前播放的影片
     const currentVideo = this.currentIndex !== -1 ? this.playlist[this.currentIndex] : null;
 
     // Fisher-Yates 洗牌算法
@@ -955,29 +772,22 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       [this.playlist[i], this.playlist[j]] = [this.playlist[j], this.playlist[i]];
     }
 
-    // 更新當前播放索引
     if (currentVideo) {
       this.currentIndex = this.playlist.findIndex(video => video.id === currentVideo.id);
     }
 
-    // 隨機排序只需要同步播放清單，不觸發播放狀態更新
     this.syncPlaylistOnly();
   }
 
-  // 切換播放器展開/收起狀態
   togglePlayer() {
     this.isPlayerExpanded = !this.isPlayerExpanded;
-
-    // 觸發變更檢測以更新 CSS 類別
     this.cdr.markForCheck();
 
-    // 在展開模式下，動態計算播放器位置
     setTimeout(() => {
       this.updatePlayerPosition();
     }, 50);
   }
 
-  // 更新播放器位置
   private updatePlayerPosition() {
     const playerContainer = document.querySelector('.youtube-player-container');
     const targetContainer = document.getElementById('video-target');
@@ -987,7 +797,6 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     const playerElement = playerContainer as HTMLElement;
 
     if (this.isPlayerExpanded) {
-      // 展開模式：計算目標容器的位置
       const targetRect = targetContainer.getBoundingClientRect();
 
       playerElement.style.position = 'fixed';
@@ -995,62 +804,48 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       playerElement.style.left = `${targetRect.left}px`;
       playerElement.style.width = `${targetRect.width}px`;
       playerElement.style.height = `${targetRect.height}px`;
-      playerElement.style.zIndex = '1000'; // 確保在最上層
+      playerElement.style.zIndex = '1000';
       playerElement.style.borderRadius = '12px';
       playerElement.style.overflow = 'hidden';
       playerElement.style.boxShadow = '0 8px 32px hsl(var(--bc) / 0.2)';
       playerElement.style.background = '#000';
     } else {
-      // 迷你模式：移除所有內聯樣式，讓 CSS 接管
       playerElement.removeAttribute('style');
-
-      // 強制觸發 CSS 重新計算
       playerElement.offsetHeight;
     }
   }
 
   togglePlayPause() {
-    // 檢查是否有播放清單
     if (this.playlist.length === 0) {
-      console.log('沒有播放清單，請先添加影片');
       this.showToastMessage('請先添加影片到播放清單', 'info');
       return;
     }
 
     const currentPlayer = this.getCurrentPlayer();
 
-    // 允許只要 currentPlayer 存在就嘗試操作
     if (currentPlayer) {
       try {
-        // 如果沒有當前影片但有播放清單，先設置第一個影片
         if (!this.currentVideoId && this.playlist.length > 0) {
           this.playIndex(0);
           return;
         }
         if (this.currentVideoId) {
           const playerState = currentPlayer.getPlayerState();
-          // 只要播放器不是未初始化(-1)就允許操作
           if (playerState === YT.PlayerState.PLAYING) {
-            console.log('暫停播放');
             currentPlayer.pauseVideo();
           } else if (playerState !== -1) {
-            console.log('開始播放');
             currentPlayer.playVideo();
           } else {
-            console.log('播放器尚未初始化，請稍候再試');
             this.showToastMessage('播放器正在初始化，請稍候再試', 'info');
           }
         } else {
-          console.log('沒有影片可播放，請先添加影片到播放清單');
           this.showToastMessage('沒有影片可播放，請先添加影片到播放清單', 'info');
         }
-        // 注意：不要在這裡調用 syncYoutubeState()，播放狀態變化會通過 onPlayerStateChange 處理
       } catch (error) {
         console.error('Error toggling play/pause:', error);
         this.showToastMessage('播放控制發生錯誤', 'error');
       }
     } else {
-      console.log('播放器未就緒 - 播放器存在:', !!currentPlayer, '播放器就緒:', this.isPlayerReady);
       this.showToastMessage('播放器正在載入，請稍候再試', 'info');
     }
   }
@@ -1067,10 +862,9 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // 音量控制方法
   onVolumeChange(value: number) {
-    this.volume = value / 10; // 改為 0-10 範圍，除以 10 得到 0-1
+    this.volume = value / 10;
     this.isMuted = this.volume === 0;
 
-    // 使用防抖機制
     this.volumeChangeSubject.next(this.volume);
   }
 
@@ -1085,14 +879,13 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
         } else {
           currentPlayer.unMute();
         }
-        console.log('設置YouTube音量:', volume * 100, '靜音:', this.isMuted);
       } catch (error) {
         console.error('設置音量失敗:', error);
       }
     }
 
     // 同步音量狀態到伺服器（不發送播放清單）
-    this.syncVolumeState();
+    this.syncPlaybackState();
   }
 
   toggleMute() {
@@ -1111,24 +904,19 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     }
 
-    // 同步音量狀態到伺服器（不發送播放清單）
-    this.syncVolumeState();
+    this.syncPlaybackState();
   }
 
-  // 導航到播放清單管理頁面
   goToPlaylistManager() {
     this.router.navigate(['/playlists']);
   }
 
-  // 播放清單管理相關方法
   loadAvailablePlaylists() {
     this.radioSync.getPlaylists();
   }
 
-  // 載入播放清單縮圖
   loadPlaylistThumbnails() {
     this.availablePlaylists.forEach(playlist => {
-      // 為每個播放清單載入詳情以獲取縮圖
       this.radioSync.getPlaylistDetail(playlist.id);
     });
   }
@@ -1140,7 +928,6 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     };
     this.showAddToPlaylistModal = true;
 
-    // 載入可用的播放清單
     this.radioSync.getPlaylists();
   }
 
@@ -1159,35 +946,28 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  // 快速訪問播放清單
   goToPlaylist(playlistId: number) {
     this.router.navigate(['/playlist', playlistId]);
   }
 
-  // 獲取要顯示的播放清單（根據螢幕寬度限制數量）
   getDisplayPlaylists(): any[] {
-    // 根據螢幕寬度決定顯示數量
-    const maxDisplay = window.innerWidth >= 1024 ? 4 : 3; // lg 螢幕顯示 4 個，其他顯示 3 個
+    const maxDisplay = window.innerWidth >= 1024 ? 4 : 3;
     return this.availablePlaylists.slice(0, maxDisplay);
   }
 
-  // 獲取播放清單縮圖
   getPlaylistThumbnails(playlistId: number): string[] {
     return this.playlistThumbnails[playlistId] || [];
   }
 
-  // 獲取播放清單歌曲數量
   getPlaylistItemCount(playlistId: number): number {
     return this.playlistItemCounts[playlistId] || 0;
   }
 
-  // Toast 通知方法
   showToastMessage(message: string, type: 'success' | 'error' | 'info' = 'info') {
     this.toastMessage = message;
     this.toastType = type;
     this.showToast = true;
 
-    // 3 秒後自動隱藏
     setTimeout(() => {
       this.showToast = false;
       this.cdr.markForCheck();
@@ -1196,9 +976,10 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  // 組件銷毀時清理資源
   ngOnDestroy() {
     this.volumeChangeSubject.complete();
+    window.removeEventListener('resize', this.boundOnResize);
+    delete (window as any).checkVolume;
   }
 
 }

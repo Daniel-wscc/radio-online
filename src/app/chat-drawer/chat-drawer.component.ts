@@ -1,15 +1,16 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, DestroyRef, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ChatService } from '../services/chat.service';
+import { ChatService, ChatMessage } from '../services/chat.service';
 import { ViewEncapsulation } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-chat-drawer',
   standalone: true,
   imports: [
-    CommonModule, 
-    FormsModule, 
+    CommonModule,
+    FormsModule,
   ],
   templateUrl: './chat-drawer.component.html',
   styleUrls: ['./chat-drawer.component.css'],
@@ -21,15 +22,20 @@ export class ChatDrawerComponent implements OnInit {
   unreadCount = 0;
   notificationPermission: NotificationPermission = 'default';
   showNotificationPrompt = false;
-  
+
+  visible = false;
+  private lastMessageCount = 0;
+  private destroyRef = inject(DestroyRef);
+
   constructor(private chatService: ChatService) {
     this.messages$ = this.chatService.messages$;
-    
-    // 修改監聽邏輯，只在有新訊息且不是系統訊息時增加未讀數並顯示通知
-    this.messages$.subscribe(messages => {
+
+    // 監聽新訊息，只在有新的非系統訊息時增加未讀數並顯示通知
+    this.messages$.pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(messages => {
       if (!this.visible && messages && messages.length > 0) {
         const lastMessage = messages[messages.length - 1];
-        // 只有在不是系統訊息時才增加未讀數和顯示通知
         if (!lastMessage.isSystem && (!this.lastMessageCount || messages.length > this.lastMessageCount)) {
           this.unreadCount++;
           this.showNotification(lastMessage);
@@ -40,17 +46,14 @@ export class ChatDrawerComponent implements OnInit {
   }
 
   ngOnInit() {
-    // 檢查通知權限
     if ('Notification' in window) {
       this.notificationPermission = Notification.permission;
       this.showNotificationPrompt = this.notificationPermission === 'default';
     }
   }
 
-  // 請求通知權限
   async requestNotificationPermission() {
     if (!('Notification' in window)) {
-      console.log('此瀏覽器不支援通知功能');
       return;
     }
 
@@ -62,21 +65,19 @@ export class ChatDrawerComponent implements OnInit {
     }
   }
 
-  // 顯示通知
-  private showNotification(message: any) {
+  private showNotification(message: ChatMessage) {
     if (
-      this.notificationPermission === 'granted' && 
-      'Notification' in window && 
+      this.notificationPermission === 'granted' &&
+      'Notification' in window &&
       document.hidden
     ) {
       const userName = message.userName || '訪客';
-      const messageText = message.text || message.content || '發送了一則訊息';  // 根據消息格式調整
+      const messageText = message.message || '發送了一則訊息';
       const notification = new Notification('新聊天訊息', {
         body: `${userName}: ${messageText}`,
         icon: '/favicon.ico'
       });
 
-      // 點擊通知時打開聊天視窗
       notification.onclick = () => {
         window.focus();
         this.visible = true;
@@ -84,25 +85,21 @@ export class ChatDrawerComponent implements OnInit {
         notification.close();
       };
 
-      // 自動關閉通知
       setTimeout(() => notification.close(), 5000);
     }
   }
 
-  visible = false;
-
-  // 添加新的屬性來追蹤訊息數量
-  private lastMessageCount = 0;
-
-  // 重置未讀數時也重置最後訊息數
   onCollapsedChange(event: boolean) {
     this.visible = event;
     this.chatService.setChatVisible(this.visible);
     if (this.visible) {
-        this.unreadCount = 0;
-        this.messages$.subscribe(messages => {
-            this.lastMessageCount = messages ? messages.length : 0;
-        }).unsubscribe();
+      this.unreadCount = 0;
+      // 使用 take(1) 同步讀取當前訊息數量
+      this.messages$.pipe(
+        takeUntilDestroyed(this.destroyRef)
+      ).subscribe(messages => {
+        this.lastMessageCount = messages ? messages.length : 0;
+      });
     }
   }
 
@@ -120,8 +117,7 @@ export class ChatDrawerComponent implements OnInit {
     }
   }
 
-  // 關閉通知提示
   dismissNotificationPrompt() {
     this.showNotificationPrompt = false;
   }
-} 
+}

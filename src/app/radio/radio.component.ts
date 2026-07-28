@@ -11,6 +11,7 @@ import { ChatService } from '../services/chat.service';
 import { Subject } from 'rxjs';
 import { debounceTime } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import packageJson from '../../../package.json';
 
 @Component({
   selector: 'app-radio',
@@ -45,6 +46,10 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   currentYoutubeIndex: number = -1;
   volume: number = 1;
   onlineUsers: number = 0;
+  private volumeSyncLockUntil = 0;
+  
+  public appVersion: string = packageJson.version;
+  public currentYear: number = new Date().getFullYear();
 
   playerConfig = {
     origin: window.location.origin,
@@ -125,11 +130,11 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
   // Proxy 服務設定
   private proxyServices = [
+    { url: 'https://radio.wscc1031.synology.me/api/nowplaying/', encode: false, isCustom: true },
     { url: 'https://api.allorigins.win/raw?url=', encode: true },
     { url: 'https://corsproxy.io/?', encode: true },
     { url: 'https://api.codetabs.com/v1/proxy?quest=', encode: false },
-    { url: 'https://thingproxy.freeboard.io/fetch/', encode: false },
-    { url: 'https://cors-anywhere.herokuapp.com/', encode: false }
+    { url: 'https://thingproxy.freeboard.io/fetch/', encode: false }
   ];
 
   constructor(
@@ -173,9 +178,12 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
       // 單獨處理音量變化
       if (typeof state.volume === 'number') {
-        this.volume = state.volume;
-        if (this.audioPlayer?.nativeElement) {
-          this.audioPlayer.nativeElement.volume = this.volume;
+        const incomingVolume = this.normalizeVolume(state.volume);
+        const keepLocalVolume = Date.now() < this.volumeSyncLockUntil &&
+          Math.abs(incomingVolume - this.volume) > 0.001;
+        if (!keepLocalVolume) {
+          this.volume = incomingVolume;
+          this.applyAudioVolume();
         }
       }
     });
@@ -248,9 +256,32 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     this.featuredStations = this.stations;
   }
 
+  private normalizeVolume(value: number): number {
+    return Number.isFinite(value) ? Math.min(Math.max(value, 0), 1) : this.volume;
+  }
+
+  private applyAudioVolume(audio: HTMLAudioElement | undefined = this.audioPlayer?.nativeElement, volume = this.volume) {
+    if (!audio) return;
+    const normalizedVolume = this.normalizeVolume(volume);
+    audio.volume = normalizedVolume;
+    audio.muted = normalizedVolume === 0;
+  }
+
+  private markLocalVolumeChange() {
+    this.volumeSyncLockUntil = Date.now() + 2000;
+    this.radioSync.setLocalVolume(this.volume);
+  }
+
+  private preserveVolumeForSourceSwitch(): number {
+    this.volume = this.normalizeVolume(this.volume);
+    this.markLocalVolumeChange();
+    return this.volume;
+  }
+
   adjustVolume(change: number) {
-    let newVolume = Math.min(Math.max(this.volume + change, 0), 1);
-    this.volume = newVolume;
+    this.volume = this.normalizeVolume(this.volume + change);
+    this.markLocalVolumeChange();
+    this.applyAudioVolume();
 
     const currentState = this.radioSync.currentState;
 
@@ -275,6 +306,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     }
 
     this.currentStation = this.stations.find(s => s.name === stationName);
+    const preservedVolume = this.preserveVolumeForSourceSwitch();
     try {
       if (!this.audioPlayer?.nativeElement) {
         throw new Error('Audio player not initialized');
@@ -286,13 +318,13 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
       if (this.currentPlayPromise) {
         this.currentPlayPromise
           .then(() => {
-            this.startNewPlayback(audio, url);
+            this.startNewPlayback(audio, url, preservedVolume);
           })
           .catch(() => {
-            this.startNewPlayback(audio, url);
+            this.startNewPlayback(audio, url, preservedVolume);
           });
       } else {
-        this.startNewPlayback(audio, url);
+        this.startNewPlayback(audio, url, preservedVolume);
       }
 
     } catch (error) {
@@ -300,15 +332,17 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     }
   }
 
-  private startNewPlayback(audio: HTMLAudioElement, url: string) {
+  private startNewPlayback(audio: HTMLAudioElement, url: string, volume: number) {
     audio.pause();
     audio.src = '';
     audio.crossOrigin = "anonymous";
+    this.applyAudioVolume(audio, volume);
 
     if (url.endsWith('m3u8')) {
-      this.handleHLSPlayback(audio, url);
+      this.handleHLSPlayback(audio, url, volume);
     } else {
       audio.src = url;
+      this.applyAudioVolume(audio, volume);
       this.currentPlayPromise = audio.play();
       this.currentPlayPromise.catch(error => {
         console.error("播放失敗：", error);
@@ -317,12 +351,13 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     }
   }
 
-  private handleHLSPlayback(audio: HTMLAudioElement, url: string) {
+  private handleHLSPlayback(audio: HTMLAudioElement, url: string, volume: number) {
     if (Hls.isSupported()) {
       const hls = new Hls();
       hls.loadSource(url);
       hls.attachMedia(audio);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        this.applyAudioVolume(audio, volume);
         this.currentPlayPromise = audio.play();
         this.currentPlayPromise.catch(error => {
           console.error("HLS 播放失敗：", error);
@@ -337,11 +372,9 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   // 修改音量控制
   onVolumeChange(event: any) {
     if (!this.isYoutubeMode && this.audioPlayer?.nativeElement) {
-      this.volume = Number(event) / 100;
-      if (isNaN(this.volume) || !isFinite(this.volume)) {
-        this.volume = 1;
-      }
-      this.audioPlayer.nativeElement.volume = this.volume;
+      this.volume = this.normalizeVolume(Number(event) / 100);
+      this.markLocalVolumeChange();
+      this.applyAudioVolume();
       this.volumeChange$.next(this.volume); // 只推送，不直接 update
     }
   }
@@ -362,7 +395,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     this.radioSync.updateState({
       currentStation: station,
       isPlaying: true,
-      volume: this.audioPlayer.nativeElement.volume,
+      volume: this.volume,
       youtubeState: {
         playlist: currentState.youtubeState?.playlist || [],
         currentIndex: currentState.youtubeState?.currentIndex || -1,
@@ -374,6 +407,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
   // 修改切換到 YouTube 的方法
   switchToYoutube() {
+    const preservedVolume = this.preserveVolumeForSourceSwitch();
     this.isYoutubeMode = true;
     this.currentStation = null;
     if (this.audioPlayer?.nativeElement) {
@@ -402,7 +436,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     this.radioSync.updateState({
       currentStation: null,
       isPlaying: playlistToUse.length > 0 && indexToUse >= 0,
-      volume: this.audioPlayer?.nativeElement?.volume || 1,
+      volume: preservedVolume,
       youtubeState: {
         isYoutubeMode: true,
         playlist: playlistToUse,
@@ -558,9 +592,15 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     }
 
     const proxy = this.proxyServices[proxyIndex];
-    const proxyUrl = proxy.encode
-      ? proxy.url + encodeURIComponent(originalUrl)
-      : proxy.url + originalUrl;
+    let proxyUrl = '';
+    
+    if (proxy.isCustom) {
+      proxyUrl = proxy.url + channel;
+    } else {
+      proxyUrl = proxy.encode
+        ? proxy.url + encodeURIComponent(originalUrl)
+        : proxy.url + originalUrl;
+    }
 
     // 使用 AbortController 實現超時控制
     const controller = new AbortController();

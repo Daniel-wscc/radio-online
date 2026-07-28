@@ -114,6 +114,16 @@ body {
     border: none;
 }
 
+.youtube-init-status {
+    margin: 0 0 1rem;
+    color: #495057;
+    text-align: center;
+}
+
+.youtube-init-status.is-error {
+    color: #b02a37;
+}
+
 .playlist-controls {
     margin: 1rem 0;
 }

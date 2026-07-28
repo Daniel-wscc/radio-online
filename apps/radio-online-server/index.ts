@@ -43,6 +43,38 @@ const io = new Server(httpServer, {
   transports: ['websocket', 'polling']
 });
 
+// Proxy endpoint for BigBRadio NowPlaying
+app.get('/api/nowplaying/:channel', async (req, res) => {
+  const channel = req.params.channel;
+  
+  // 防禦性檢查
+  if (!channel || !/^[A-Za-z]+$/.test(channel)) {
+    return res.status(400).send('Invalid channel');
+  }
+
+  const targetUrl = `https://bigbradio.net/stream/NowPlaying-${channel.charAt(0).toUpperCase() + channel.slice(1)}.txt`;
+
+  try {
+    const response = await fetch(targetUrl, {
+      headers: {
+        'Accept': 'text/plain',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) radio-proxy'
+      }
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).send(`Failed to fetch: ${response.status}`);
+    }
+
+    const text = await response.text();
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.send(text);
+  } catch (error) {
+    console.error('Error fetching NowPlaying:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
 // 設定 Socket.IO Admin UI
 instrument(io, {
   auth: {

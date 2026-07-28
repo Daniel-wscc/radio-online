@@ -864,6 +864,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
   onVolumeChange(value: number) {
     this.volume = value / 10;
     this.isMuted = this.volume === 0;
+    this.radioSync.setLocalVolume(this.isMuted ? 0 : this.volume);
 
     this.volumeChangeSubject.next(this.volume);
   }
@@ -890,6 +891,7 @@ export class YoutubeRadioComponent implements OnInit, AfterViewInit, OnDestroy {
 
   toggleMute() {
     this.isMuted = !this.isMuted;
+    this.radioSync.setLocalVolume(this.isMuted ? 0 : this.volume);
 
     const currentPlayer = this.getCurrentPlayer();
     if (currentPlayer && this.isPlayerReady) {

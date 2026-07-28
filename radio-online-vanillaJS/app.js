@@ -61,10 +61,31 @@ var isYoutubeMode = false;
 var youtubePlayer = null;
 var playlist = [];
 var currentVideoIndex = -1;
-var socket = io('https://test.wscc1031.synology.me');
+var youtubeApiState = 'idle';
+var youtubeApiAttempt = 0;
+var youtubeApiLoadTimer = null;
+var youtubeApiRetryTimer = null;
+var youtubePlayerInitializing = false;
+var youtubePlayerReady = false;
+var youtubePlayerReadyTimer = null;
+var youtubeApiMaxAttempts = 3;
+var youtubeApiUrl = 'https://www.youtube.com/iframe_api';
+var socket = io('https://radio.wscc1031.synology.me');
 var isDarkMode = false;
 // 本地重排/同步期間，短暫忽略遠端索引更新
 var suppressIndexUpdatesUntil = 0;
+
+// 串流重試相關變數
+var streamRetryTimer = null;
+var streamRetryCount = 0;
+var streamRetryBaseDelay = 2000;  // 基礎延遲 2 秒
+var streamRetryMaxDelay = 15000;  // 最大延遲 15 秒
+var streamStalledTimer = null;
+var streamStalledTimeout = 12000; // 串流停滯超過12秒視為斷線
+var streamPlayStartTime = 0;      // 最近一次成功播放的起始時間
+var isRetryingStream = false;     // 避免同時多個重試
+var isSwitchingSource = false;    // 切換/重設音源時抑制事件
+var lastPlayingTime = 0;          // 上次觸發 playing 事件的時間
 
 function capturePlaybackSnapshot() {
     try {
@@ -101,7 +122,7 @@ var wasFullscreen = false;
 // 共用：確保 YouTube 播放器音量與滑桿一致
 function syncYoutubeVolume() {
     try {
-        var currentVolume = volumeSlider.value / 10;
+        var currentVolume = getSavedVolume();
         if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
             youtubePlayer.setVolume(currentVolume * 100);
             if (currentVolume === 0) {
@@ -134,6 +155,45 @@ var controlCard = document.getElementById('controlCard');
 // 新增全域變數
 var prevButton = document.getElementById('prevButton');
 var nextButton = document.getElementById('nextButton');
+var savedVolume = volumeSlider ? parseFloat(volumeSlider.value) / 10 : 1;
+var volumeSyncLockUntil = 0;
+
+function getPlaylistVideoId(items, index) {
+    return items && index >= 0 && items[index] ? items[index].id : null;
+}
+
+function normalizeVolume(value) {
+    value = parseFloat(value);
+    if (isNaN(value)) return savedVolume;
+    return Math.max(0, Math.min(1, value));
+}
+
+function getSavedVolume() {
+    return normalizeVolume(savedVolume);
+}
+
+function rememberVolume(value) {
+    savedVolume = normalizeVolume(value === undefined ? (volumeSlider ? volumeSlider.value / 10 : savedVolume) : value);
+    if (volumeSlider) {
+        volumeSlider.value = savedVolume * 10;
+        volumeSlider.style.setProperty('--value', (savedVolume * 100) + '%');
+    }
+    return savedVolume;
+}
+
+function applyAudioVolume(volume) {
+    volume = normalizeVolume(volume);
+    if (!audioPlayer) return;
+    audioPlayer.volume = volume;
+    audioPlayer.muted = volume === 0;
+}
+
+function preserveVolumeForSourceSwitch() {
+    var volume = rememberVolume();
+    // 忽略切換過程中晚到的舊同步狀態，避免把新播放器重設為 100%。
+    volumeSyncLockUntil = Date.now() + 2000;
+    return volume;
+}
 
 // 初始化
 function init() {
@@ -188,7 +248,8 @@ var volumeDebounceDelay = 300; // 300ms 防抖延遲
 function setupEventListeners() {
     // 音量控制
     volumeSlider.addEventListener('input', function (e) {
-        var volume = e.target.value / 10; // 改為 0-10 範圍，除以 10 得到 0-1
+        var volume = rememberVolume(e.target.value / 10); // 改為 0-10 範圍，除以 10 得到 0-1
+        volumeSyncLockUntil = Date.now() + 1000;
 
         // YouTube模式下使用YouTube API控制音量
         if (isYoutubeMode && youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
@@ -202,9 +263,7 @@ function setupEventListeners() {
         }
         // 普通音頻播放器
         else {
-            audioPlayer.volume = volume;
-            // 確保當音量為 0 時完全靜音
-            audioPlayer.muted = volume === 0;
+            applyAudioVolume(volume);
         }
 
         // 更新滑桿顏色（將 0-10 的值轉換為 0-100 的百分比）
@@ -299,9 +358,170 @@ function findStationById(id) {
     });
 }
 
+// 清除串流重試相關的計時器
+function clearStreamRetry() {
+    if (streamRetryTimer) {
+        clearTimeout(streamRetryTimer);
+        streamRetryTimer = null;
+    }
+    if (streamStalledTimer) {
+        clearTimeout(streamStalledTimer);
+        streamStalledTimer = null;
+    }
+    streamRetryCount = 0;
+    isRetryingStream = false;
+    streamPlayStartTime = 0;
+    lastPlayingTime = 0;
+}
+
+// 計算指數退避延遲（2s → 4s → 8s → 15s 上限）
+function getRetryDelay() {
+    var delay = streamRetryBaseDelay * Math.pow(2, Math.min(streamRetryCount, 4));
+    return Math.min(delay, streamRetryMaxDelay);
+}
+
+// 排程一次重試（集中入口，避免多重排程）
+function scheduleStreamRetry() {
+    if (isYoutubeMode || !currentStation) return;
+    if (isRetryingStream) return;
+    if (streamRetryTimer) return;
+    var delay = getRetryDelay();
+    console.log('預計 ' + (delay / 1000) + ' 秒後重試 (次數: ' + (streamRetryCount + 1) + ')');
+    streamRetryTimer = setTimeout(retryCurrentStream, delay);
+}
+
+// 重新連線當前電台串流（無次數限制，持續重試直到成功或切台）
+function retryCurrentStream() {
+    streamRetryTimer = null;
+    if (!currentStation || isYoutubeMode) return;
+    if (isRetryingStream) return;
+
+    isRetryingStream = true;
+    streamRetryCount++;
+    streamPlayStartTime = 0; // 重置播放起始時間
+    console.log('串流重試 (第 ' + streamRetryCount + ' 次):', currentStation.name);
+
+    try {
+        if (currentStation.url.endsWith('m3u8')) {
+            if (window.hls) {
+                window.hls.startLoad();
+            }
+            isRetryingStream = false;
+        } else {
+            ensureAudioElement();
+            // 切換音源期間抑制 error/waiting/stalled 造成的連鎖重試
+            isSwitchingSource = true;
+            audioPlayer.pause();
+            audioPlayer.removeAttribute('src');
+            audioPlayer.load();
+
+            setTimeout(function () {
+                if (!currentStation) {
+                    isSwitchingSource = false;
+                    isRetryingStream = false;
+                    return;
+                }
+                audioPlayer.src = currentStation.url;
+                applyAudioVolume(getSavedVolume());
+
+                var playPromise = audioPlayer.play();
+                if (playPromise && typeof playPromise.catch === 'function') {
+                    playPromise.catch(function (error) {
+                        // AbortError 是瀏覽器切換 src 時的正常行為，忽略
+                        if (error && error.name === 'AbortError') {
+                            console.log('忽略 AbortError（切換 src 造成）');
+                            return;
+                        }
+                        console.error('重試播放失敗:', error);
+                        isRetryingStream = false;
+                        scheduleStreamRetry();
+                    });
+                }
+                // 解除抑制（給瀏覽器一點時間處理 src 變更）
+                setTimeout(function () {
+                    isSwitchingSource = false;
+                    isRetryingStream = false;
+                }, 1000);
+            }, 300);
+        }
+    } catch (error) {
+        console.error('重試時發生錯誤:', error);
+        isRetryingStream = false;
+        isSwitchingSource = false;
+        scheduleStreamRetry();
+    }
+}
+
+// 綁定串流監聽事件到 audio 元素
+function bindStreamRecoveryEvents(audio) {
+    audio.removeEventListener('stalled', onStreamStalled);
+    audio.removeEventListener('error', onStreamError);
+    audio.removeEventListener('playing', onStreamPlaying);
+
+    audio.addEventListener('stalled', onStreamStalled);
+    audio.addEventListener('error', onStreamError);
+    audio.addEventListener('playing', onStreamPlaying);
+}
+
+function onStreamStalled() {
+    if (isYoutubeMode || isSwitchingSource) return;
+    if (streamStalledTimer) return; // 已在計時中
+    console.log('串流停滯 (stalled)，' + (streamStalledTimeout / 1000) + ' 秒後若未恢復將重試');
+    streamStalledTimer = setTimeout(function () {
+        streamStalledTimer = null;
+        // 再次確認播放器狀態：若已在播放則跳過
+        if (audioPlayer && !audioPlayer.paused && audioPlayer.readyState >= 2) {
+            console.log('串流已恢復，取消重試');
+            return;
+        }
+        console.log('串流持續停滯，嘗試重新連線');
+        scheduleStreamRetry();
+    }, streamStalledTimeout);
+}
+
+function onStreamError(e) {
+    if (isYoutubeMode || isSwitchingSource) return;
+    // 確認是真的錯誤而不是 src 被清空
+    if (!audioPlayer || !audioPlayer.src) return;
+    var err = audioPlayer.error;
+    console.error('串流發生錯誤:', err ? ('code=' + err.code + ' msg=' + err.message) : e);
+    if (streamStalledTimer) {
+        clearTimeout(streamStalledTimer);
+        streamStalledTimer = null;
+    }
+    scheduleStreamRetry();
+}
+
+function onStreamPlaying() {
+    lastPlayingTime = Date.now();
+    if (streamStalledTimer) {
+        clearTimeout(streamStalledTimer);
+        streamStalledTimer = null;
+    }
+    // 播放啟動時間（成功連線）
+    if (streamPlayStartTime === 0) {
+        streamPlayStartTime = Date.now();
+    }
+    // 僅當播放穩定超過 10 秒才重置重試計數，避免極短暫的播放誤判成功
+    if (streamRetryCount > 0) {
+        setTimeout(function () {
+            if (!audioPlayer || audioPlayer.paused) return;
+            var playedDuration = Date.now() - streamPlayStartTime;
+            if (playedDuration >= 10000 && !audioPlayer.paused) {
+                console.log('串流穩定播放 ' + Math.round(playedDuration / 1000) + ' 秒，重置重試計數');
+                streamRetryCount = 0;
+                streamPlayStartTime = 0;
+            }
+        }, 10500);
+    }
+}
+
 // 停止所有音頻源
 function stopAllAudioSources() {
     console.log('停止所有音頻源');
+
+    // 清除串流重試
+    clearStreamRetry();
 
     // 停止 HLS 播放器
     if (window.hls) {
@@ -357,9 +577,11 @@ function ensureAudioElement() {
 
         // 更新全域變數
         audioPlayer = audioElement;
+        applyAudioVolume(getSavedVolume());
     } else {
         // 確保現有元素是正確的
         audioPlayer = existingPlayer;
+        applyAudioVolume(getSavedVolume());
         console.log('使用現有的音頻元素');
     }
 }
@@ -367,6 +589,7 @@ function ensureAudioElement() {
 // 播放電台
 function playStation(station) {
     console.log('開始播放電台:', station.name, 'URL:', station.url);
+    var selectedVolume = preserveVolumeForSourceSwitch();
 
     if (isYoutubeMode) {
         isYoutubeMode = false;
@@ -395,20 +618,24 @@ function playStation(station) {
     });
 
     // 播放音頻
+    clearStreamRetry();
     try {
         if (station.url.endsWith('m3u8')) {
             playHLSStream(station.url);
         } else {
             // 確保使用正確的音頻元素
             ensureAudioElement();
+            // 綁定串流恢復事件
+            bindStreamRecoveryEvents(audioPlayer);
+
             audioPlayer.src = station.url;
-            // 設置音量
-            const currentVolume = volumeSlider.value / 10;
-            audioPlayer.volume = currentVolume;
-            audioPlayer.muted = currentVolume === 0;
+            // 在設定來源前後都套用，避免 TV 瀏覽器把新媒體元素回復為預設 100%。
+            applyAudioVolume(selectedVolume);
 
             audioPlayer.play().catch(function (error) {
+                if (error && error.name === 'AbortError') return;
                 console.error('播放失敗：', error);
+                scheduleStreamRetry();
             });
         }
         updateRadioState();
@@ -426,9 +653,7 @@ function playHLSStream(url) {
         ensureAudioElement();
 
         // 設置初始音量
-        const currentVolume = volumeSlider.value / 10;
-        audioPlayer.volume = currentVolume;
-        audioPlayer.muted = currentVolume === 0;
+        applyAudioVolume(getSavedVolume());
 
         // 檢查瀏覽器是否支援 HLS
         if (Hls.isSupported()) {
@@ -443,11 +668,13 @@ function playHLSStream(url) {
             // 綁定 HLS 事件
             window.hls.on(Hls.Events.MEDIA_ATTACHED, function () {
                 console.log('HLS 媒體已附加，開始載入源:', url);
+                applyAudioVolume(getSavedVolume());
                 window.hls.loadSource(url);
             });
 
             window.hls.on(Hls.Events.MANIFEST_PARSED, function () {
                 console.log('HLS 清單已解析，開始播放');
+                applyAudioVolume(getSavedVolume());
                 audioPlayer.play().catch(function (error) {
                     console.error('HLS 播放失敗:', error);
                 });
@@ -482,6 +709,7 @@ function playHLSStream(url) {
             audioPlayer.src = url;
             audioPlayer.addEventListener('loadedmetadata', function () {
                 console.log('原生 HLS 載入完成，開始播放');
+                applyAudioVolume(getSavedVolume());
                 audioPlayer.play().catch(function (error) {
                     console.error('原生 HLS 播放失敗:', error);
                 });
@@ -498,7 +726,7 @@ function playHLSStream(url) {
 // 更新廣播狀態
 function updateRadioState() {
     // 獲取當前音量值
-    var currentVolume = volumeSlider.value / 10; // 從滑桿值計算音量
+    var currentVolume = getSavedVolume();
 
     var state = {
         currentStation: currentStation,
@@ -508,7 +736,7 @@ function updateRadioState() {
             isYoutubeMode: isYoutubeMode,
             playlist: playlist,
             currentIndex: currentVideoIndex,
-            currentVideoId: currentVideoIndex >= 0 ? playlist[currentVideoIndex]?.id : null
+            currentVideoId: getPlaylistVideoId(playlist, currentVideoIndex)
         }
     };
 
@@ -541,8 +769,10 @@ function setupSocketListeners() {
     socket.on('currentState', function (state) {
         if (state) {
             console.log('收到初始狀態:', state);
-            // 強制設置初始播放
-            if (state.currentStation && state.isPlaying) {
+            // YouTube 模式需要完整播放清單，不能走僅初始化電台的舊流程。
+            if (state.youtubeState && state.youtubeState.isYoutubeMode) {
+                handleStateUpdate(state);
+            } else if (state.currentStation && state.isPlaying) {
                 handleInitialState(state);
             } else {
                 handleStateUpdate(state);
@@ -576,21 +806,22 @@ function handleStateUpdate(state) {
 
     // 同步音量 - 這個操作不應該中斷播放
     if (state.volume !== undefined && !isNaN(state.volume)) {
-        // 更新滑桿值和樣式（新的範圍是 0-10）
-        volumeSlider.value = state.volume * 10;
-        volumeSlider.style.setProperty('--value', (volumeSlider.value * 10) + '%');
+        var incomingVolume = normalizeVolume(state.volume);
+        var shouldKeepLocalVolume = Date.now() < volumeSyncLockUntil &&
+            Math.abs(incomingVolume - getSavedVolume()) > 0.001;
 
-        // 更新播放器音量，但不中斷播放
-        if (isYoutubeMode && youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-            syncYoutubeVolume();
-        } else if (window.videoPlayer) {
-            window.videoPlayer.volume(state.volume);
-            window.videoPlayer.muted(state.volume === 0);
+        if (shouldKeepLocalVolume) {
+            console.log('切換來源期間保留本機音量:', getSavedVolume());
         } else {
-            const audioElement = document.getElementById('audioPlayer');
-            if (audioElement) {
-                audioElement.volume = state.volume;
-                audioElement.muted = state.volume === 0;
+            rememberVolume(incomingVolume);
+            // 更新播放器音量，但不中斷播放
+            if (isYoutubeMode && youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
+                syncYoutubeVolume();
+            } else if (window.videoPlayer) {
+                window.videoPlayer.volume(incomingVolume);
+                window.videoPlayer.muted(incomingVolume === 0);
+            } else {
+                applyAudioVolume(incomingVolume);
             }
         }
     }
@@ -598,6 +829,11 @@ function handleStateUpdate(state) {
     if (incomingYoutubeMode) {
         // 強制切換到 YouTube 模式
         isYoutubeMode = true;
+        controlCard.style.display = 'none';
+        youtubeSection.style.display = 'block';
+        currentStationName.textContent = 'YouTube 播放器';
+        // 必須先顯示容器，部分電視瀏覽器才能建立 iframe。
+        ensureYoutubePlayerReady();
 
         // 停止所有播放源
         const audioElement = document.getElementById('audioPlayer');
@@ -622,8 +858,8 @@ function handleStateUpdate(state) {
                 console.log('本地重排保護期內，忽略遠端索引/影片ID更新');
                 return;
             }
-            var oldVideoId = currentVideoIndex >= 0 ? playlist[currentVideoIndex]?.id : null;
-            var newVideoId = state.youtubeState.playlist[state.youtubeState.currentIndex]?.id;
+            var oldVideoId = getPlaylistVideoId(playlist, currentVideoIndex);
+            var newVideoId = getPlaylistVideoId(state.youtubeState.playlist, state.youtubeState.currentIndex);
 
             // 保存當前播放狀態
             var wasPlaying = youtubePlayer && youtubePlayer.getPlayerState &&
@@ -807,21 +1043,23 @@ function handleStateUpdate(state) {
             currentStationName.textContent = state.currentStation.name;
 
             // 更新音源並播放
+            clearStreamRetry();
             if (state.currentStation.url.endsWith('m3u8')) {
                 playHLSStream(state.currentStation.url);
             } else {
                 // 確保使用正確的音頻元素
                 ensureAudioElement();
+                bindStreamRecoveryEvents(audioPlayer);
                 audioPlayer.src = state.currentStation.url;
 
                 // 設定音量
-                const currentVolume = volumeSlider.value / 10;
-                audioPlayer.volume = currentVolume;
-                audioPlayer.muted = currentVolume === 0;
+                applyAudioVolume(getSavedVolume());
 
                 if (state.isPlaying) {
                     audioPlayer.play().catch(function (error) {
+                        if (error && error.name === 'AbortError') return;
                         console.log('遠端切換電台播放失敗:', error);
+                        scheduleStreamRetry();
                     });
                 }
             }
@@ -849,8 +1087,7 @@ function handleInitialState(state) {
 
     // 設置音量
     if (state.volume !== undefined && !isNaN(state.volume)) {
-        volumeSlider.value = state.volume * 10;
-        volumeSlider.style.setProperty('--value', (volumeSlider.value * 10) + '%');
+        rememberVolume(state.volume);
     }
 
     // 處理初始電台
@@ -868,20 +1105,22 @@ function handleInitialState(state) {
         });
 
         // 設置音源並自動播放
+        clearStreamRetry();
         if (state.currentStation.url.endsWith('m3u8')) {
             playHLSStream(state.currentStation.url);
         } else {
             // 確保使用正確的音頻元素
             ensureAudioElement();
+            bindStreamRecoveryEvents(audioPlayer);
             audioPlayer.src = state.currentStation.url;
 
             // 設置音量
-            const currentVolume = volumeSlider.value / 10;
-            audioPlayer.volume = currentVolume;
-            audioPlayer.muted = currentVolume === 0;
+            applyAudioVolume(getSavedVolume());
 
             audioPlayer.play().catch(function (error) {
+                if (error && error.name === 'AbortError') return;
                 console.log('初始播放失敗:', error);
+                scheduleStreamRetry();
             });
         }
     }
@@ -891,7 +1130,7 @@ function handleInitialState(state) {
         isYoutubeMode = true;
         controlCard.style.display = 'none';
         youtubeSection.style.display = 'block';
-        // ... 其他 YouTube 相關邏輯 ...
+        ensureYoutubePlayerReady();
     }
 }
 
@@ -919,56 +1158,188 @@ function applyTheme() {
     }
 }
 
-// 確保 YouTube API 正確載入
-function loadYouTubeAPI() {
-    // 只有在 YouTube API 尚未載入時才載入
-    if (!window.YT) {
-        var tag = document.createElement('script');
-        tag.src = "https://www.youtube.com/iframe_api";
-        var firstScriptTag = document.getElementsByTagName('script')[0];
-        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+function setYoutubeInitStatus(message, isError) {
+    var status = document.getElementById('youtubeInitStatus');
+    if (!status) return;
+
+    status.textContent = message || '';
+    status.className = isError ? 'youtube-init-status is-error' : 'youtube-init-status';
+    status.style.display = message ? 'block' : 'none';
+}
+
+function getYoutubeOrigin() {
+    // location.origin 在部分舊款電視瀏覽器不存在；只在 HTTP(S) 網頁傳遞有效 origin。
+    if (window.location.protocol !== 'http:' && window.location.protocol !== 'https:') {
+        return null;
     }
+    return window.location.protocol + '//' + window.location.host;
+}
+
+function getYoutubePlayerVars() {
+    var playerVars = {
+        'playsinline': 1,
+        'enablejsapi': 1,
+        'rel': 0
+    };
+    var origin = getYoutubeOrigin();
+    if (origin) playerVars.origin = origin;
+    return playerVars;
+}
+
+function getYoutubePlayerElement() {
+    var playerDiv = document.getElementById('youtubePlayer');
+
+    // 在失敗後若只留下 iframe，先換回 IFrame API 可初始化的 div。
+    if (playerDiv && playerDiv.tagName && playerDiv.tagName.toLowerCase() === 'iframe') {
+        if (playerDiv.parentNode) playerDiv.parentNode.removeChild(playerDiv);
+        playerDiv = null;
+    }
+
+    if (!playerDiv) {
+        playerDiv = document.createElement('div');
+        playerDiv.id = 'youtubePlayer';
+        var playerContainer = document.querySelector('.youtube-container') || youtubeSection;
+        if (playerContainer) playerContainer.appendChild(playerDiv);
+    }
+    return playerDiv;
+}
+
+function scheduleYoutubeApiRetry(reason) {
+    if (youtubeApiLoadTimer) {
+        clearTimeout(youtubeApiLoadTimer);
+        youtubeApiLoadTimer = null;
+    }
+    if (youtubeApiRetryTimer || youtubeApiAttempt >= youtubeApiMaxAttempts) {
+        if (youtubeApiAttempt >= youtubeApiMaxAttempts) {
+            setYoutubeInitStatus('無法載入 YouTube 播放器，請確認電視可連線至 YouTube 後再試。', true);
+        }
+        return;
+    }
+
+    youtubeApiState = 'failed';
+    console.warn('YouTube IFrame API 載入失敗，準備重試：', reason);
+    setYoutubeInitStatus('正在重新連線 YouTube 播放器…', false);
+    youtubeApiRetryTimer = setTimeout(function () {
+        youtubeApiRetryTimer = null;
+        loadYouTubeAPI();
+    }, youtubeApiAttempt * 1000);
+}
+
+// 只由 app.js 載入 IFrame API，確保回調已經存在，避免電視瀏覽器的載入競態。
+function loadYouTubeAPI() {
+    if (window.YT && typeof window.YT.Player === 'function') {
+        youtubeApiState = 'ready';
+        ensureYoutubePlayerReady();
+        return;
+    }
+    if (youtubeApiState === 'loading') return;
+    if (youtubeApiAttempt >= youtubeApiMaxAttempts) {
+        setYoutubeInitStatus('無法載入 YouTube 播放器，請確認電視可連線至 YouTube 後再試。', true);
+        return;
+    }
+
+    youtubeApiState = 'loading';
+    youtubeApiAttempt++;
+    var previousTag = document.getElementById('youtube-iframe-api');
+    if (previousTag && previousTag.parentNode) previousTag.parentNode.removeChild(previousTag);
+
+    var tag = document.createElement('script');
+    tag.id = 'youtube-iframe-api';
+    tag.src = youtubeApiUrl;
+    tag.async = true;
+    tag.onerror = function () {
+        scheduleYoutubeApiRetry('網路或 TLS 連線錯誤');
+    };
+    (document.head || document.body).appendChild(tag);
+
+    youtubeApiLoadTimer = setTimeout(function () {
+        if (!(window.YT && typeof window.YT.Player === 'function')) {
+            scheduleYoutubeApiRetry('等待 API 逾時');
+        }
+    }, 12000);
 }
 
 // YouTube API 準備就緒時的回調
 function onYouTubeIframeAPIReady() {
     console.log('YouTube API Ready');
-    // 若 youtubePlayer 已存在，先銷毀
-    if (youtubePlayer && typeof youtubePlayer.destroy === 'function') {
-        youtubePlayer.destroy();
-        youtubePlayer = null;
+    youtubeApiState = 'ready';
+    if (youtubeApiLoadTimer) {
+        clearTimeout(youtubeApiLoadTimer);
+        youtubeApiLoadTimer = null;
     }
-    // 確保 DOM 存在再初始化
-    var playerDiv = document.getElementById('youtubePlayer');
+    ensureYoutubePlayerReady();
+}
+
+function ensureYoutubePlayerReady() {
+    if (!isYoutubeMode || youtubePlayerReady || youtubePlayerInitializing) return;
+    if (!(window.YT && typeof window.YT.Player === 'function')) {
+        loadYouTubeAPI();
+        return;
+    }
+
+    var playerDiv = getYoutubePlayerElement();
     if (!playerDiv) {
-        playerDiv = document.createElement('div');
-        playerDiv.id = 'youtubePlayer';
-        playerDiv.style.width = '100%';
-        playerDiv.style.height = '360px';
-        var youtubeSection = document.getElementById('youtubeSection');
-        if (youtubeSection) youtubeSection.appendChild(playerDiv);
+        setYoutubeInitStatus('找不到 YouTube 播放器容器。', true);
+        return;
     }
-    youtubePlayer = new YT.Player('youtubePlayer', {
-        playerVars: {
-            'playsinline': 1,
-            'origin': window.location.origin,
-            'enablejsapi': 1,
-            'rel': 0
-        },
-        events: {
-            'onReady': onPlayerReady,
-            'onStateChange': onPlayerStateChange
+
+    if (youtubePlayerReadyTimer) {
+        clearTimeout(youtubePlayerReadyTimer);
+        youtubePlayerReadyTimer = null;
+    }
+    youtubePlayerInitializing = true;
+    youtubePlayerReady = false;
+    setYoutubeInitStatus('正在初始化 YouTube 播放器…', false);
+    try {
+        youtubePlayer = new window.YT.Player(playerDiv.id, {
+            width: '100%',
+            height: '100%',
+            playerVars: getYoutubePlayerVars(),
+            events: {
+                'onReady': onPlayerReady,
+                'onStateChange': onPlayerStateChange,
+                'onError': onPlayerError
+            }
+        });
+        if (!youtubePlayerReady) {
+            youtubePlayerReadyTimer = setTimeout(function () {
+                youtubePlayerReadyTimer = null;
+                if (youtubePlayerReady) return;
+                console.error('YouTube 播放器初始化逾時');
+                youtubePlayerInitializing = false;
+                if (youtubePlayer && typeof youtubePlayer.destroy === 'function') {
+                    try {
+                        youtubePlayer.destroy();
+                    } catch (e) { }
+                }
+                youtubePlayer = null;
+                setYoutubeInitStatus('YouTube 播放器初始化逾時，正在重試…', true);
+                ensureYoutubePlayerReady();
+            }, 15000);
         }
-    });
+    } catch (error) {
+        youtubePlayer = null;
+        youtubePlayerInitializing = false;
+        console.error('YouTube 播放器初始化失敗:', error);
+        setYoutubeInitStatus('YouTube 播放器初始化失敗，正在重試…', true);
+        setTimeout(ensureYoutubePlayerReady, 1000);
+    }
 }
 
 // 播放器準備就緒的回調
 function onPlayerReady(event) {
     console.log('Player Ready');
+    youtubePlayerInitializing = false;
+    youtubePlayerReady = true;
+    if (youtubePlayerReadyTimer) {
+        clearTimeout(youtubePlayerReadyTimer);
+        youtubePlayerReadyTimer = null;
+    }
+    setYoutubeInitStatus('', false);
 
     // 暴露音量檢查方法到 window
     window.checkVolume = function() {
-        var currentVolume = volumeSlider.value / 10;
+        var currentVolume = getSavedVolume();
         console.log('目前元件記錄音量 (volumeSlider):', currentVolume);
         
         if (youtubePlayer) {
@@ -1002,6 +1373,12 @@ function onPlayerReady(event) {
         console.log('自動播放第一首影片');
         playYoutubeIndex(0);
     }
+}
+
+function onPlayerError(event) {
+    // 2、5、100、101、150 是 IFrame API 的影片錯誤碼；播放器本身仍可使用。
+    console.error('YouTube 播放錯誤:', event && event.data);
+    setYoutubeInitStatus('YouTube 無法播放這部影片（錯誤碼：' + (event && event.data) + '）。', true);
 }
 
 // 添加 YouTube 相關事件監聽器
@@ -1049,47 +1426,13 @@ function switchToYoutube() {
         audioPlayer.src = '';
     }
 
-    // 若 youtubePlayer 已存在，先銷毀
-    if (youtubePlayer && typeof youtubePlayer.destroy === 'function') {
-        youtubePlayer.destroy();
-        youtubePlayer = null;
-    }
-
-    // 確保 youtubePlayer DOM 存在
-    if (!document.getElementById('youtubePlayer')) {
-        var playerDiv = document.createElement('div');
-        playerDiv.id = 'youtubePlayer';
-        playerDiv.style.width = '100%';
-        playerDiv.style.height = '360px';
-        youtubeSection.appendChild(playerDiv);
-    }
-
-    // 確保 YT API 載入且播放器已初始化
-    function ensureYoutubePlayerReady() {
-        if (window.YT && YT.Player && (!youtubePlayer || typeof youtubePlayer.loadVideoById !== 'function')) {
-            youtubePlayer = new YT.Player('youtubePlayer', {
-                playerVars: {
-                    'playsinline': 1,
-                    'origin': window.location.origin,
-                    'enablejsapi': 1,
-                    'rel': 0
-                },
-                events: {
-                    'onReady': onPlayerReady,
-                    'onStateChange': onPlayerStateChange
-                }
-            });
-        } else if (!window.YT || !YT.Player) {
-            // 若 API 尚未載入，稍後重試
-            setTimeout(ensureYoutubePlayerReady, 300);
-        }
-    }
-    ensureYoutubePlayerReady();
-
     // 隱藏音量控制卡片
     controlCard.style.display = 'none';
     youtubeSection.style.display = 'block';
     currentStationName.textContent = 'YouTube 播放器';
+
+    // 必須在容器顯示後才建立播放器；某些電視瀏覽器無法初始化 display:none 內的 iframe。
+    ensureYoutubePlayerReady();
 
     // 更新活動狀態
     var allStations = document.querySelectorAll('.station-item');

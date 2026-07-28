@@ -96,7 +96,22 @@ export class RadioSyncService {
 
   // 更新廣播狀態
   updateState(state: RadioState) {
+    // Socket 伺服器不會把狀態廣播回原發送者，因此先更新本機，讓電台與 YouTube 元件共用同一份音量。
+    // 音量則由 setLocalVolume 立即更新，避免 YouTube 的靜音狀態（volume: 0）覆蓋原本的滑桿值。
+    this.radioState.next({
+      ...state,
+      volume: this.radioState.value.volume
+    });
     this.socket.emit('updateRadioState', state);
+  }
+
+  // 立即更新本機元件間共享的音量；伺服器同步仍由原本的 updateState 流程處理。
+  setLocalVolume(volume: number) {
+    const currentState = this.radioState.value;
+    this.radioState.next({
+      ...currentState,
+      volume
+    });
   }
 
   // 新增：發送輕量級狀態更新（不包含播放清單）
@@ -109,6 +124,21 @@ export class RadioSyncService {
         playlist: undefined // 不發送播放清單
       } : undefined
     };
+    const currentState = this.radioState.value;
+    const localState: RadioState = {
+      ...currentState,
+      ...state,
+      isPlaying: state.isPlaying ?? currentState.isPlaying,
+      volume: state.volume ?? currentState.volume,
+      youtubeState: state.youtubeState ? {
+        ...currentState.youtubeState,
+        ...state.youtubeState,
+        playlist: state.youtubeState.playlist === undefined
+          ? currentState.youtubeState?.playlist
+          : state.youtubeState.playlist
+      } : currentState.youtubeState
+    };
+    this.radioState.next(localState);
     this.socket.emit('updateRadioState', lightweightState);
   }
 

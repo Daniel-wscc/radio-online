@@ -40,6 +40,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   public duration: number = 0;
   public featuredStations: any[] = [];
   isYoutubeMode: boolean = false;
+  isMobileSidebarOpen: boolean = false;
   youtubeUrlInput: string = '';
   youtubePlaylist: Array<{ id: string, title?: string }> = [];
   currentVideoId: string | null = null;
@@ -254,6 +255,14 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   private initializeStations() {
     this.stations = this.customStations;
     this.featuredStations = this.stations;
+  }
+
+  toggleMobileSidebar() {
+    this.isMobileSidebarOpen = !this.isMobileSidebarOpen;
+  }
+
+  closeMobileSidebar() {
+    this.isMobileSidebarOpen = false;
   }
 
   private normalizeVolume(value: number): number {

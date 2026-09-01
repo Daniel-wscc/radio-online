@@ -2,10 +2,23 @@
   <!-- 確保 audio 元素在最上層 -->
   <audio #audioPlayer muted autoplay crossorigin="anonymous"></audio>
 
+  <!-- 手機版電台清單開關 -->
+  <button class="mobile-station-toggle btn btn-primary md:hidden" type="button"
+    (click)="toggleMobileSidebar()" [attr.aria-expanded]="isMobileSidebarOpen"
+    aria-controls="station-sidebar" [attr.aria-label]="isMobileSidebarOpen ? '關閉電台清單' : '開啟電台清單'" title="電台清單">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  </button>
 
+  @if (isMobileSidebarOpen) {
+  <button class="mobile-sidebar-backdrop md:hidden" type="button" (click)="closeMobileSidebar()"
+    aria-label="關閉電台清單"></button>
+  }
 
   <!-- 左側 Sidebar -->
-  <div class="sidebar-container w-full md:w-1/4 bg-base-200 shadow-xl border-r border-base-300 flex flex-col h-screen">
+  <div id="station-sidebar" class="sidebar-container w-full md:w-1/4 bg-base-200 shadow-xl border-r border-base-300 flex flex-col h-screen"
+    [class.mobile-sidebar-open]="isMobileSidebarOpen">
     <!-- 標題區域 - 固定不滾動 -->
     <div
       class="sidebar-header p-5 flex justify-between items-center border-b border-base-300 bg-base-200 flex-shrink-0">
@@ -20,7 +33,7 @@
       <!-- YouTube 播放器選項 -->
       <div
         class="station p-4 cursor-pointer transition hover:bg-base-300 rounded-lg m-2 shadow-sm border border-transparent hover:border-primary"
-        [class.selected]="isYoutubeMode" (click)="switchToYoutube()">
+        [class.selected]="isYoutubeMode" (click)="switchToYoutube(); closeMobileSidebar()">
         <div>
           <strong class="text-lg">YouTube 播放器</strong>
         </div>
@@ -32,7 +45,7 @@
       @for (station of featuredStations; track station.id) {
       <div
         class="station p-4 cursor-pointer transition hover:bg-base-300 rounded-lg m-2 shadow-sm border border-transparent hover:border-primary"
-        [class.selected]="currentStation?.name === station.name" (click)="selectStation(station)">
+        [class.selected]="currentStation?.name === station.name" (click)="selectStation(station); closeMobileSidebar()">
         <div>
           <strong class="text-lg">{{ station.name }}</strong>
         </div>
@@ -91,17 +104,19 @@
             </div>
             <!-- 音量控制 -->
             <div class="mb-4">
-              <div class="flex items-center gap-2">
-                <button class="btn btn-ghost btn-sm" (click)="adjustVolume(-0.1)">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+              <div class="volume-control flex items-center gap-3">
+                <button class="volume-adjust-button btn btn-ghost" (click)="adjustVolume(-0.1)"
+                  aria-label="降低音量" title="降低音量">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                   </svg>
                 </button>
-                <input type="range" min="0" max="100" class="range range-primary flex-1" [ngModel]="volume * 100"
-                  (ngModelChange)="onVolumeChange($event)">
-                <button class="btn btn-ghost btn-sm" (click)="adjustVolume(0.1)">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                <input type="range" min="0" max="100" class="volume-range range range-primary flex-1" [ngModel]="volume * 100"
+                  (ngModelChange)="onVolumeChange($event)" title="音量：{{ volume * 100 }}%">
+                <button class="volume-adjust-button btn btn-ghost" (click)="adjustVolume(0.1)"
+                  aria-label="提高音量" title="提高音量">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                   </svg>

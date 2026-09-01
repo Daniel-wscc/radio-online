@@ -82,6 +82,7 @@ var streamRetryBaseDelay = 2000;  // 基礎延遲 2 秒
 var streamRetryMaxDelay = 15000;  // 最大延遲 15 秒
 var streamStalledTimer = null;
 var streamStalledTimeout = 12000; // 串流停滯超過12秒視為斷線
+var bigBRadioStalledTimeout = 5000; // BigBRadio 應快速開始；逾時時改用新連線重試
 var streamPlayStartTime = 0;      // 最近一次成功播放的起始時間
 var isRetryingStream = false;     // 避免同時多個重試
 var isSwitchingSource = false;    // 切換/重設音源時抑制事件
@@ -157,6 +158,10 @@ var prevButton = document.getElementById('prevButton');
 var nextButton = document.getElementById('nextButton');
 var savedVolume = volumeSlider ? parseFloat(volumeSlider.value) / 10 : 1;
 var volumeSyncLockUntil = 0;
+var kpopPreloadStationId = 'custom_6';
+var backgroundPreloadPlayer = null;
+var backgroundPreloadStationId = null;
+var backgroundPreloadTimer = null;
 
 function getPlaylistVideoId(items, index) {
     return items && index >= 0 && items[index] ? items[index].id : null;
@@ -195,6 +200,106 @@ function preserveVolumeForSourceSwitch() {
     return volume;
 }
 
+function getKpopPreloadStation() {
+    return findStationById(kpopPreloadStationId);
+}
+
+function getBackgroundPreloadPlayer() {
+    if (backgroundPreloadPlayer) return backgroundPreloadPlayer;
+
+    backgroundPreloadPlayer = document.getElementById('backgroundAudioPreload');
+    if (!backgroundPreloadPlayer) {
+        backgroundPreloadPlayer = document.createElement('audio');
+        backgroundPreloadPlayer.id = 'backgroundAudioPreload';
+        backgroundPreloadPlayer.preload = 'auto';
+        backgroundPreloadPlayer.crossOrigin = 'anonymous';
+        backgroundPreloadPlayer.muted = true;
+        backgroundPreloadPlayer.volume = 0;
+        backgroundPreloadPlayer.style.display = 'none';
+        document.body.appendChild(backgroundPreloadPlayer);
+    }
+    return backgroundPreloadPlayer;
+}
+
+function scheduleKpopBackgroundPreload() {
+    if (backgroundPreloadTimer || (currentStation && currentStation.id === kpopPreloadStationId)) return;
+    backgroundPreloadTimer = setTimeout(function () {
+        backgroundPreloadTimer = null;
+        startKpopBackgroundPreload();
+    }, 1500);
+}
+
+function startKpopBackgroundPreload() {
+    var station = getKpopPreloadStation();
+    if (!station || (currentStation && currentStation.id === station.id)) return;
+
+    var preloadPlayer = getBackgroundPreloadPlayer();
+    if (backgroundPreloadStationId === station.id && preloadPlayer.src) return;
+
+    try {
+        preloadPlayer.pause();
+        removeStreamRecoveryEvents(preloadPlayer);
+        preloadPlayer.muted = true;
+        preloadPlayer.volume = 0;
+        preloadPlayer.src = getStreamRequestUrl(station, true);
+        preloadPlayer.load();
+        backgroundPreloadStationId = station.id;
+
+        // 直播只有實際播放才能保有可立即輸出的緩衝；保持靜音不會發出聲音。
+        var preloadPromise = preloadPlayer.play();
+        if (preloadPromise && typeof preloadPromise.catch === 'function') {
+            preloadPromise.catch(function (error) {
+                console.log('BigBRadio Kpop 背景預載未啟動，切換時將改為一般載入:', error);
+                backgroundPreloadStationId = null;
+            });
+        }
+    } catch (error) {
+        console.log('BigBRadio Kpop 背景預載失敗，切換時將改為一般載入:', error);
+        backgroundPreloadStationId = null;
+    }
+}
+
+function promoteBackgroundPreload(station, volume) {
+    if (!station || station.id !== backgroundPreloadStationId || !backgroundPreloadPlayer ||
+        backgroundPreloadPlayer.readyState < 2) {
+        return false;
+    }
+
+    var previousPlayer = audioPlayer;
+    if (previousPlayer && previousPlayer !== backgroundPreloadPlayer) {
+        previousPlayer.id = 'backgroundAudioPreload';
+    }
+    backgroundPreloadPlayer.id = 'audioPlayer';
+    audioPlayer = backgroundPreloadPlayer;
+    backgroundPreloadPlayer = previousPlayer;
+    backgroundPreloadStationId = null;
+
+    bindStreamRecoveryEvents(audioPlayer);
+    applyAudioVolume(volume);
+    if (audioPlayer.paused) {
+        audioPlayer.play().catch(function (error) {
+            console.error('啟用 BigBRadio Kpop 預載串流失敗:', error);
+            scheduleStreamRetry();
+        });
+    }
+    console.log('已切換至 BigBRadio Kpop 預載串流');
+    return true;
+}
+
+function cancelBackgroundPreload(station) {
+    if (!station || station.id !== backgroundPreloadStationId || !backgroundPreloadPlayer) return;
+
+    // 預載尚未可接手時，停止它，避免和正式播放器重複連線至同一串流。
+    try {
+        backgroundPreloadPlayer.pause();
+        backgroundPreloadPlayer.removeAttribute('src');
+        backgroundPreloadPlayer.load();
+    } catch (error) {
+        console.log('停止背景預載時發生問題:', error);
+    }
+    backgroundPreloadStationId = null;
+}
+
 // 初始化
 function init() {
     loadStations();
@@ -203,6 +308,7 @@ function init() {
     setupSocketListeners();
     setupTheme();
     loadYouTubeAPI();
+    scheduleKpopBackgroundPreload();
 
     // 請求當前狀態並設置初始播放
     socket.emit('requestCurrentState');
@@ -421,8 +527,9 @@ function retryCurrentStream() {
                     isRetryingStream = false;
                     return;
                 }
-                audioPlayer.src = currentStation.url;
+                audioPlayer.src = getStreamRequestUrl(currentStation, true);
                 applyAudioVolume(getSavedVolume());
+                audioPlayer.load();
 
                 var playPromise = audioPlayer.play();
                 if (playPromise && typeof playPromise.catch === 'function') {
@@ -441,6 +548,9 @@ function retryCurrentStream() {
                 setTimeout(function () {
                     isSwitchingSource = false;
                     isRetryingStream = false;
+                    if (audioPlayer && audioPlayer.readyState < 2) {
+                        startStreamStallTimer('retry-loading');
+                    }
                 }, 1000);
             }, 300);
         }
@@ -454,19 +564,35 @@ function retryCurrentStream() {
 
 // 綁定串流監聽事件到 audio 元素
 function bindStreamRecoveryEvents(audio) {
-    audio.removeEventListener('stalled', onStreamStalled);
-    audio.removeEventListener('error', onStreamError);
-    audio.removeEventListener('playing', onStreamPlaying);
+    removeStreamRecoveryEvents(audio);
 
     audio.addEventListener('stalled', onStreamStalled);
+    audio.addEventListener('waiting', onStreamWaiting);
     audio.addEventListener('error', onStreamError);
     audio.addEventListener('playing', onStreamPlaying);
 }
 
+function removeStreamRecoveryEvents(audio) {
+    if (!audio) return;
+    audio.removeEventListener('stalled', onStreamStalled);
+    audio.removeEventListener('waiting', onStreamWaiting);
+    audio.removeEventListener('error', onStreamError);
+    audio.removeEventListener('playing', onStreamPlaying);
+}
+
 function onStreamStalled() {
+    startStreamStallTimer('stalled');
+}
+
+function onStreamWaiting() {
+    startStreamStallTimer('waiting');
+}
+
+function startStreamStallTimer(reason) {
     if (isYoutubeMode || isSwitchingSource) return;
     if (streamStalledTimer) return; // 已在計時中
-    console.log('串流停滯 (stalled)，' + (streamStalledTimeout / 1000) + ' 秒後若未恢復將重試');
+    var timeout = getStreamStalledTimeout();
+    console.log('串流等待 (' + reason + ')，' + (timeout / 1000) + ' 秒後若未恢復將重試');
     streamStalledTimer = setTimeout(function () {
         streamStalledTimer = null;
         // 再次確認播放器狀態：若已在播放則跳過
@@ -476,7 +602,7 @@ function onStreamStalled() {
         }
         console.log('串流持續停滯，嘗試重新連線');
         scheduleStreamRetry();
-    }, streamStalledTimeout);
+    }, timeout);
 }
 
 function onStreamError(e) {
@@ -568,6 +694,7 @@ function ensureAudioElement() {
         audioElement.id = 'audioPlayer';
         audioElement.controls = false;
         audioElement.crossOrigin = 'anonymous';
+        audioElement.preload = 'auto';
 
         const controlCard = document.getElementById('controlCard');
         const cardBody = controlCard.querySelector('.card-body');
@@ -625,20 +752,25 @@ function playStation(station) {
         } else {
             // 確保使用正確的音頻元素
             ensureAudioElement();
-            // 綁定串流恢復事件
-            bindStreamRecoveryEvents(audioPlayer);
+            if (!promoteBackgroundPreload(station, selectedVolume)) {
+                cancelBackgroundPreload(station);
+                // 綁定串流恢復事件
+                bindStreamRecoveryEvents(audioPlayer);
 
-            audioPlayer.src = station.url;
-            // 在設定來源前後都套用，避免 TV 瀏覽器把新媒體元素回復為預設 100%。
-            applyAudioVolume(selectedVolume);
+                audioPlayer.src = getStreamRequestUrl(station, false);
+                // 在設定來源前後都套用，避免 TV 瀏覽器把新媒體元素回復為預設 100%。
+                applyAudioVolume(selectedVolume);
+                audioPlayer.load();
 
-            audioPlayer.play().catch(function (error) {
-                if (error && error.name === 'AbortError') return;
-                console.error('播放失敗：', error);
-                scheduleStreamRetry();
-            });
+                audioPlayer.play().catch(function (error) {
+                    if (error && error.name === 'AbortError') return;
+                    console.error('播放失敗：', error);
+                    scheduleStreamRetry();
+                });
+            }
         }
         updateRadioState();
+        scheduleKpopBackgroundPreload();
     } catch (error) {
         console.error('播放失敗：', error);
     }
@@ -1049,18 +1181,22 @@ function handleStateUpdate(state) {
             } else {
                 // 確保使用正確的音頻元素
                 ensureAudioElement();
-                bindStreamRecoveryEvents(audioPlayer);
-                audioPlayer.src = state.currentStation.url;
+                if (!(state.isPlaying && promoteBackgroundPreload(state.currentStation, getSavedVolume()))) {
+                    cancelBackgroundPreload(state.currentStation);
+                    bindStreamRecoveryEvents(audioPlayer);
+                    audioPlayer.src = getStreamRequestUrl(state.currentStation, false);
 
-                // 設定音量
-                applyAudioVolume(getSavedVolume());
+                    // 設定音量
+                    applyAudioVolume(getSavedVolume());
+                    audioPlayer.load();
 
-                if (state.isPlaying) {
-                    audioPlayer.play().catch(function (error) {
-                        if (error && error.name === 'AbortError') return;
-                        console.log('遠端切換電台播放失敗:', error);
-                        scheduleStreamRetry();
-                    });
+                    if (state.isPlaying) {
+                        audioPlayer.play().catch(function (error) {
+                            if (error && error.name === 'AbortError') return;
+                            console.log('遠端切換電台播放失敗:', error);
+                            scheduleStreamRetry();
+                        });
+                    }
                 }
             }
         } else {
@@ -1078,6 +1214,7 @@ function handleStateUpdate(state) {
                 item.classList.add('active');
             }
         });
+        scheduleKpopBackgroundPreload();
     }
 }
 
@@ -1111,19 +1248,25 @@ function handleInitialState(state) {
         } else {
             // 確保使用正確的音頻元素
             ensureAudioElement();
-            bindStreamRecoveryEvents(audioPlayer);
-            audioPlayer.src = state.currentStation.url;
+            if (!promoteBackgroundPreload(state.currentStation, getSavedVolume())) {
+                cancelBackgroundPreload(state.currentStation);
+                bindStreamRecoveryEvents(audioPlayer);
+                audioPlayer.src = getStreamRequestUrl(state.currentStation, false);
 
-            // 設置音量
-            applyAudioVolume(getSavedVolume());
+                // 設置音量
+                applyAudioVolume(getSavedVolume());
+                audioPlayer.load();
 
-            audioPlayer.play().catch(function (error) {
-                if (error && error.name === 'AbortError') return;
-                console.log('初始播放失敗:', error);
-                scheduleStreamRetry();
-            });
+                audioPlayer.play().catch(function (error) {
+                    if (error && error.name === 'AbortError') return;
+                    console.log('初始播放失敗:', error);
+                    scheduleStreamRetry();
+                });
+            }
         }
     }
+
+    scheduleKpopBackgroundPreload();
 
     // 處理 YouTube 模式
     if (state.youtubeState && state.youtubeState.isYoutubeMode) {
@@ -1165,6 +1308,20 @@ function setYoutubeInitStatus(message, isError) {
     status.textContent = message || '';
     status.className = isError ? 'youtube-init-status is-error' : 'youtube-init-status';
     status.style.display = message ? 'block' : 'none';
+}
+
+function isBigBRadioStation(station) {
+    return !!(station && station.url && station.url.indexOf('antares.dribbcast.com/proxy/') !== -1);
+}
+
+function getStreamStalledTimeout() {
+    return isBigBRadioStation(currentStation) ? bigBRadioStalledTimeout : streamStalledTimeout;
+}
+
+function getStreamRequestUrl(station, forceFreshConnection) {
+    if (!forceFreshConnection || !isBigBRadioStation(station)) return station.url;
+    // BigBRadio 偶爾會讓上一個長連線停住；每次重試使用新 URL 以強制瀏覽器重新取流。
+    return station.url + (station.url.indexOf('?') === -1 ? '?' : '&') + '_streamRetry=' + Date.now();
 }
 
 function getYoutubeOrigin() {

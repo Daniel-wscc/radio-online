@@ -119,8 +119,12 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
   // 現正播放快取
   private nowPlayingCache: { [key: string]: { data: string, timestamp: number } } = {};
-  private nowPlayingCacheTimeout = 30000; // 30秒快取，與更新間隔一致
+  private nowPlayingCacheTimeout = 20000;
   private nowPlayingUpdateInterval: any;
+  private nowPlayingRequestInFlight = false;
+  private nowPlayingAbortController: AbortController | null = null;
+  private readonly nowPlayingUpdateIntervalMs = 15000;
+  private readonly nowPlayingApiUrl = 'https://radio.wscc1031.synology.me/api/nowplaying';
 
   // BigBRadio 電台列表（初始化時快取，避免每次 filter）
   private bigbStations: typeof this.customStations = [];
@@ -128,15 +132,6 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   private bigbChannelMap = new Map<string, string>();
 
   private volumeChange$ = new Subject<number>();
-
-  // Proxy 服務設定
-  private proxyServices = [
-    { url: 'https://radio.wscc1031.synology.me/api/nowplaying/', encode: false, isCustom: true },
-    { url: 'https://api.allorigins.win/raw?url=', encode: true },
-    { url: 'https://corsproxy.io/?', encode: true },
-    { url: 'https://api.codetabs.com/v1/proxy?quest=', encode: false },
-    { url: 'https://thingproxy.freeboard.io/fetch/', encode: false }
-  ];
 
   constructor(
     private cdr: ChangeDetectorRef,
@@ -259,10 +254,12 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
   toggleMobileSidebar() {
     this.isMobileSidebarOpen = !this.isMobileSidebarOpen;
+    this.updateNowPlayingPolling();
   }
 
   closeMobileSidebar() {
     this.isMobileSidebarOpen = false;
+    this.updateNowPlayingPolling();
   }
 
   private normalizeVolume(value: number): number {
@@ -528,6 +525,9 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     if (this.nowPlayingUpdateInterval) {
       clearInterval(this.nowPlayingUpdateInterval);
     }
+    this.nowPlayingAbortController?.abort();
+    document.removeEventListener('visibilitychange', this.onNowPlayingVisibilityChange);
+    window.removeEventListener('resize', this.onNowPlayingViewportChange);
 
     this.volumeChange$.complete();
   }
@@ -550,99 +550,65 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   }
 
   private startNowPlayingUpdates() {
-    // 立即更新一次
-    this.updateAllNowPlaying();
+    document.addEventListener('visibilitychange', this.onNowPlayingVisibilityChange);
+    window.addEventListener('resize', this.onNowPlayingViewportChange);
+    this.updateNowPlayingPolling();
+  }
 
-    // 每30秒更新一次
-    this.nowPlayingUpdateInterval = setInterval(() => {
-      this.updateAllNowPlaying();
-    }, 30000);
+  private onNowPlayingVisibilityChange = () => this.updateNowPlayingPolling();
+  private onNowPlayingViewportChange = () => this.updateNowPlayingPolling();
 
-    // 如果第一次更新失敗，5秒後重試一次
-    setTimeout(() => {
-      const hasFailed = this.hasNowPlayingFailed();
-      if (hasFailed) {
-        this.updateAllNowPlaying();
+  private shouldPollNowPlaying(): boolean {
+    return !document.hidden && (window.matchMedia('(min-width: 768px)').matches || this.isMobileSidebarOpen);
+  }
+
+  private updateNowPlayingPolling() {
+    const shouldPoll = this.shouldPollNowPlaying();
+    if (!shouldPoll) {
+      if (this.nowPlayingUpdateInterval) {
+        clearInterval(this.nowPlayingUpdateInterval);
+        this.nowPlayingUpdateInterval = null;
       }
-    }, 5000);
-  }
-
-  private hasNowPlayingFailed(): boolean {
-    return Object.values(this.nowPlayingCache).some(cache =>
-      cache.data === '載入失敗'
-    );
-  }
-
-  private updateAllNowPlaying() {
-    // 使用預先快取的 BigBRadio 電台列表
-    for (const station of this.bigbStations) {
-      const channel = this.bigbChannelMap.get(station.id);
-      if (channel) {
-        this.updateNowPlaying(channel);
-      }
-    }
-  }
-
-  private updateNowPlaying(channel: string) {
-    const cacheKey = `nowPlaying_${channel}`;
-    const now = Date.now();
-
-    // 使用多個 CORS 代理服務來繞過 CORS 限制
-    const originalUrl = `https://bigbradio.net/stream/NowPlaying-${channel.charAt(0).toUpperCase() + channel.slice(1)}.txt`;
-
-    // 遞歸嘗試不同的代理服務
-    this.tryProxy(originalUrl, channel, 0);
-  }
-
-  private tryProxy(originalUrl: string, channel: string, proxyIndex: number) {
-    if (proxyIndex >= this.proxyServices.length) {
-      this.displayNowPlaying(channel, '載入失敗');
+      this.nowPlayingAbortController?.abort();
       return;
     }
 
-    const proxy = this.proxyServices[proxyIndex];
-    let proxyUrl = '';
-    
-    if (proxy.isCustom) {
-      proxyUrl = proxy.url + channel;
-    } else {
-      proxyUrl = proxy.encode
-        ? proxy.url + encodeURIComponent(originalUrl)
-        : proxy.url + originalUrl;
+    if (!this.nowPlayingUpdateInterval) {
+      this.updateAllNowPlaying();
+      this.nowPlayingUpdateInterval = setInterval(() => {
+        this.updateAllNowPlaying();
+      }, this.nowPlayingUpdateIntervalMs);
     }
+  }
 
-    // 使用 AbortController 實現超時控制
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+  private updateAllNowPlaying() {
+    if (this.nowPlayingRequestInFlight) return;
+    const channels = Array.from(this.bigbChannelMap.values());
+    if (!channels.length) return;
 
-    fetch(proxyUrl, {
-      method: 'GET',
-      headers: {
-        'Accept': 'text/plain',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      signal: controller.signal
+    this.nowPlayingRequestInFlight = true;
+    this.nowPlayingAbortController = new AbortController();
+    fetch(`${this.nowPlayingApiUrl}?channels=${encodeURIComponent(channels.join(','))}`, {
+      signal: this.nowPlayingAbortController.signal,
+      headers: { 'Accept': 'application/json' }
     })
       .then(response => {
-        clearTimeout(timeoutId);
-        if (response.ok) {
-          return response.text();
-        }
-        throw new Error('代理 ' + (proxyIndex + 1) + ' 失敗: ' + response.status);
+        if (!response.ok) throw new Error(`Now Playing request failed: ${response.status}`);
+        return response.json() as Promise<Record<string, string>>;
       })
-      .then(text => {
-        const songInfo = text.trim();
-        if (songInfo && songInfo !== '') {
-          this.displayNowPlaying(channel, songInfo);
-        } else {
-          this.displayNowPlaying(channel, '無播放資訊');
+      .then(results => {
+        for (const channel of channels) {
+          this.displayNowPlaying(channel, results[channel] || '無播放資訊');
         }
-        this.cdr.markForCheck();
       })
       .catch(error => {
-        clearTimeout(timeoutId);
-        // 嘗試下一個代理
-        this.tryProxy(originalUrl, channel, proxyIndex + 1);
+        if (error.name !== 'AbortError') {
+          console.error('取得 Now Playing 資訊失敗:', error);
+        }
+      })
+      .finally(() => {
+        this.nowPlayingRequestInFlight = false;
+        this.nowPlayingAbortController = null;
       });
   }
 

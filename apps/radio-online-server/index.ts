@@ -43,32 +43,120 @@ const io = new Server(httpServer, {
   transports: ['websocket', 'polling']
 });
 
-// Proxy endpoint for BigBRadio NowPlaying
-app.get('/api/nowplaying/:channel', async (req, res) => {
-  const channel = req.params.channel;
-  
-  // 防禦性檢查
-  if (!channel || !/^[A-Za-z]+$/.test(channel)) {
-    return res.status(400).send('Invalid channel');
-  }
+const NOW_PLAYING_CACHE_TTL = 15_000;
+type NowPlayingCacheEntry = {
+  data?: string;
+  expiresAt: number;
+  refreshPromise?: Promise<string>;
+};
+const nowPlayingCache = new Map<string, NowPlayingCacheEntry>();
 
+async function fetchNowPlaying(channel: string): Promise<string> {
   const targetUrl = `https://bigbradio.net/stream/NowPlaying-${channel.charAt(0).toUpperCase() + channel.slice(1)}.txt`;
-
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
     const response = await fetch(targetUrl, {
       headers: {
         'Accept': 'text/plain',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) radio-proxy'
-      }
+      },
+      signal: controller.signal
     });
 
     if (!response.ok) {
-      return res.status(response.status).send(`Failed to fetch: ${response.status}`);
+      throw new Error(`Failed to fetch: ${response.status}`);
     }
 
-    const text = await response.text();
+    return (await response.text()).trim() || '無播放資訊';
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getNowPlaying(channel: string): Promise<string> {
+  const now = Date.now();
+  const cached = nowPlayingCache.get(channel);
+  if (cached?.data && cached.expiresAt > now) {
+    return cached.data;
+  }
+  if (cached?.refreshPromise) {
+    return cached.refreshPromise;
+  }
+
+  const entry: NowPlayingCacheEntry = cached || { expiresAt: 0 };
+  const refreshPromise = fetchNowPlaying(channel)
+    .then(data => {
+      entry.data = data;
+      entry.expiresAt = Date.now() + NOW_PLAYING_CACHE_TTL;
+      return data;
+    });
+  entry.refreshPromise = refreshPromise;
+  refreshPromise.then(
+    () => {
+      if (entry.refreshPromise === refreshPromise) entry.refreshPromise = undefined;
+    },
+    () => {
+      if (entry.refreshPromise === refreshPromise) entry.refreshPromise = undefined;
+    }
+  );
+  nowPlayingCache.set(channel, entry);
+
+  try {
+    return await entry.refreshPromise;
+  } catch (error) {
+    // 外部來源短暫失敗時先回傳舊資料，避免每個用戶端都重複觸發上游請求。
+    if (entry.data) {
+      entry.expiresAt = Date.now() + NOW_PLAYING_CACHE_TTL;
+      return entry.data;
+    }
+    throw error;
+  }
+}
+
+function isValidNowPlayingChannel(channel: string): boolean {
+  return /^[A-Za-z]+$/.test(channel);
+}
+
+// 批次端點：前端一次取得多個頻道，減少行動裝置展開清單時的 HTTP 請求數。
+app.get('/api/nowplaying', async (req, res) => {
+  const channels = typeof req.query['channels'] === 'string'
+    ? [...new Set(req.query['channels'].split(',').filter(isValidNowPlayingChannel))].slice(0, 10)
+    : [];
+
+  if (!channels.length) {
+    return res.status(400).json({ error: 'channels query parameter is required' });
+  }
+
+  const results = await Promise.all(channels.map(async channel => {
+    try {
+      return [channel, await getNowPlaying(channel)] as const;
+    } catch (error) {
+      console.error('Error fetching NowPlaying:', error);
+      return [channel, '載入失敗'] as const;
+    }
+  }));
+  res.set('Cache-Control', 'no-store');
+  const response: Record<string, string> = {};
+  for (const [channel, data] of results) {
+    response[channel] = data;
+  }
+  res.json(response);
+});
+
+// Proxy endpoint for BigBRadio NowPlaying
+app.get('/api/nowplaying/:channel', async (req, res) => {
+  const channel = req.params.channel;
+
+  // 防禦性檢查
+  if (!channel || !isValidNowPlayingChannel(channel)) {
+    return res.status(400).send('Invalid channel');
+  }
+
+  try {
     res.set('Content-Type', 'text/plain; charset=utf-8');
-    res.send(text);
+    res.set('Cache-Control', 'no-store');
+    res.send(await getNowPlaying(channel));
   } catch (error) {
     console.error('Error fetching NowPlaying:', error);
     res.status(500).send('Internal Server Error');

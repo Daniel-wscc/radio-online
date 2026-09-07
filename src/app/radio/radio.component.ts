@@ -116,6 +116,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   ];
 
   private currentPlayPromise: Promise<void> | null = null;
+  private pendingBufferWait: AbortController | null = null;
 
   // 現正播放快取
   private nowPlayingCache: { [key: string]: { data: string, timestamp: number } } = {};
@@ -155,6 +156,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     ).subscribe((state: RadioState) => {
       // 處理 YouTube 模式切換
       if (state.youtubeState?.isYoutubeMode) {
+        this.cancelBufferWait();
         this.isYoutubeMode = true;
         this.currentStation = null;
         if (this.audioPlayer?.nativeElement) {
@@ -320,18 +322,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
       const audio = this.audioPlayer.nativeElement;
 
-      // 如果有正在進行的播放，先等它完成
-      if (this.currentPlayPromise) {
-        this.currentPlayPromise
-          .then(() => {
-            this.startNewPlayback(audio, url, preservedVolume);
-          })
-          .catch(() => {
-            this.startNewPlayback(audio, url, preservedVolume);
-          });
-      } else {
-        this.startNewPlayback(audio, url, preservedVolume);
-      }
+      this.startNewPlayback(audio, url, preservedVolume);
 
     } catch (error) {
       console.error("設定音源時發生錯誤：", error);
@@ -339,6 +330,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   }
 
   private startNewPlayback(audio: HTMLAudioElement, url: string, volume: number) {
+    this.cancelBufferWait();
     audio.pause();
     audio.src = '';
     audio.crossOrigin = "anonymous";
@@ -349,12 +341,35 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     } else {
       audio.src = url;
       this.applyAudioVolume(audio, volume);
+      if (url.startsWith('https://antares.dribbcast.com/proxy/')) {
+        // 直播串流先等待緩衝就緒，避免只有少量資料時就開始播放。
+        const controller = new AbortController();
+        this.pendingBufferWait = controller;
+        audio.addEventListener('canplaythrough', () => {
+          if (audio.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) return;
+          this.cancelBufferWait();
+          this.currentPlayPromise = audio.play();
+          this.currentPlayPromise.catch(error => {
+            if (error.name !== 'AbortError') console.error("播放失敗：", error);
+          });
+        }, { signal: controller.signal });
+        audio.addEventListener('error', () => this.cancelBufferWait(), {
+          once: true, signal: controller.signal
+        });
+        audio.load();
+        return;
+      }
       this.currentPlayPromise = audio.play();
       this.currentPlayPromise.catch(error => {
         console.error("播放失敗：", error);
         this.currentPlayPromise = null;
       });
     }
+  }
+
+  private cancelBufferWait() {
+    this.pendingBufferWait?.abort();
+    this.pendingBufferWait = null;
   }
 
   private handleHLSPlayback(audio: HTMLAudioElement, url: string, volume: number) {
@@ -413,6 +428,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
   // 修改切換到 YouTube 的方法
   switchToYoutube() {
+    this.cancelBufferWait();
     const preservedVolume = this.preserveVolumeForSourceSwitch();
     this.isYoutubeMode = true;
     this.currentStation = null;
@@ -516,6 +532,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   }
 
   ngOnDestroy() {
+    this.cancelBufferWait();
     if (this.audioPlayer?.nativeElement) {
       this.audioPlayer.nativeElement.pause();
       this.audioPlayer.nativeElement.src = '';

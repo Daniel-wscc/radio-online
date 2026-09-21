@@ -93,6 +93,19 @@
           <div class="card-body p-8">
             <div class="text-center mb-6">
               <h3 class="text-3xl font-bold mb-2 text-primary">{{ currentStation?.name || '未選擇電台' }}</h3>
+              <div role="status" aria-live="polite" class="text-base-content mb-3">
+                @if (playbackState.phase === 'loading' || playbackState.phase === 'retrying') {
+                  <p>{{ playbackState.phase === 'retrying' ? '正在重新載入' : '正在載入' }} {{ playbackState.targetName }}…</p>
+                  @if (playbackState.activeName) {
+                    <p class="text-sm">就緒前保留 {{ playbackState.activeName }} 的播放。</p>
+                  }
+                } @else if (playbackState.phase === 'playing') {
+                  <p class="text-sm">本裝置播放中：{{ playbackState.activeName }}</p>
+                } @else if (playbackState.phase === 'blocked') {
+                  <p>此裝置尚未允許播放。</p>
+                  <button type="button" class="btn btn-primary mt-2" (click)="retryRadioPlayback()">重試播放</button>
+                }
+              </div>
               @if (currentStation?.tags) {
               <div class="flex justify-center gap-2 mb-2">
                 @for (tag of (Array.isArray(currentStation.tags) ? currentStation.tags : [currentStation.tags]); track

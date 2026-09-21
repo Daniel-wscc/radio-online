@@ -2,6 +2,7 @@ import { Component, OnInit, ElementRef, ViewChild, AfterViewInit, ChangeDetector
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import Hls from 'hls.js';
+import { StreamPlayer, StreamState } from './stream-player';
 import { RadioSyncService, RadioState } from '../services/radio-sync.service';
 import { RouterModule } from '@angular/router';
 import { YouTubePlayerModule } from '@angular/youtube-player';
@@ -29,7 +30,6 @@ import packageJson from '../../../package.json';
 })
 export class RadioComponent implements OnDestroy, AfterViewInit {
   @ViewChild('audioPlayer') audioPlayer!: ElementRef<HTMLAudioElement>;
-  private isAudioPlayerReady = false;
   private destroyRef = inject(DestroyRef);
 
   public stations: any[] = [];
@@ -115,8 +115,8 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     }
   ];
 
-  private currentPlayPromise: Promise<void> | null = null;
-  private pendingBufferWait: AbortController | null = null;
+  private streamPlayer?: StreamPlayer;
+  public playbackState: StreamState = { phase: 'idle', activeName: '', targetName: '', audio: null };
 
   // 現正播放快取
   private nowPlayingCache: { [key: string]: { data: string, timestamp: number } } = {};
@@ -156,7 +156,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     ).subscribe((state: RadioState) => {
       // 處理 YouTube 模式切換
       if (state.youtubeState?.isYoutubeMode) {
-        this.cancelBufferWait();
+        this.streamPlayer?.stop();
         this.isYoutubeMode = true;
         this.currentStation = null;
         if (this.audioPlayer?.nativeElement) {
@@ -203,7 +203,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
       // 使用輕量級狀態更新，不發送播放清單
       this.radioSync.updateLightweightState({
         currentStation: this.currentStation,
-        isPlaying: this.isPlaying,
+        isPlaying: !this.isYoutubeMode && this.playbackState.phase !== 'idle',
         volume: vol,
         youtubeState: {
           currentIndex: currentState?.youtubeState?.currentIndex || -1,
@@ -215,28 +215,19 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   }
 
   ngAfterViewInit() {
-    if (this.audioPlayer?.nativeElement) {
-      this.isAudioPlayerReady = true;
-
-      this.audioPlayer.nativeElement.addEventListener('play', () => {
-        this.isPlaying = true;
+    this.streamPlayer = new StreamPlayer({
+      host: this.audioPlayer.nativeElement.parentElement!,
+      Hls,
+      onState: state => {
+        this.playbackState = state;
+        this.isPlaying = !!state.audio && !state.audio.paused;
         this.cdr.markForCheck();
-      });
-
-      this.audioPlayer.nativeElement.addEventListener('pause', () => {
-        this.isPlaying = false;
-        this.cdr.markForCheck();
-      });
-
-      this.audioPlayer.nativeElement.addEventListener('timeupdate', () => {
-        this.currentTime = this.audioPlayer.nativeElement.currentTime;
-        this.duration = this.audioPlayer.nativeElement.duration || 0;
-        this.cdr.markForCheck();
-      });
-    } else {
-      console.error('Audio player not found');
-    }
+      }
+    });
     this.initializeStations();
+    if (this.currentStation && !this.isYoutubeMode) {
+      this.playStation(this.currentStation.url_resolved || this.currentStation.url, this.currentStation.name);
+    }
 
     // 延遲請求當前狀態，確保 Socket 連接已建立
     setTimeout(() => {
@@ -273,6 +264,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     const normalizedVolume = this.normalizeVolume(volume);
     audio.volume = normalizedVolume;
     audio.muted = normalizedVolume === 0;
+    this.streamPlayer?.setVolume(normalizedVolume);
   }
 
   private markLocalVolumeChange() {
@@ -296,7 +288,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
     // 使用輕量級狀態更新，不發送播放清單
     this.radioSync.updateLightweightState({
       currentStation: this.currentStation,
-      isPlaying: this.isPlaying,
+      isPlaying: !this.isYoutubeMode && this.playbackState.phase !== 'idle',
       volume: this.volume,
       youtubeState: {
         currentIndex: currentState?.youtubeState?.currentIndex || -1,
@@ -308,88 +300,16 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   }
 
   playStation(url: string, stationName: string) {
-    if (!this.isAudioPlayerReady) {
-      console.error('Audio player is not ready yet');
-      return;
-    }
-
-    this.currentStation = this.stations.find(s => s.name === stationName);
-    const preservedVolume = this.preserveVolumeForSourceSwitch();
-    try {
-      if (!this.audioPlayer?.nativeElement) {
-        throw new Error('Audio player not initialized');
-      }
-
-      const audio = this.audioPlayer.nativeElement;
-
-      this.startNewPlayback(audio, url, preservedVolume);
-
-    } catch (error) {
-      console.error("設定音源時發生錯誤：", error);
-    }
+    this.currentStation = this.stations.find(s => s.name === stationName) || { name: stationName, url };
+    this.preserveVolumeForSourceSwitch();
+    if (!this.streamPlayer) return;
+    this.streamPlayer.setVolume(this.volume);
+    this.streamPlayer.select({ ...this.currentStation, url, url_resolved: url });
   }
 
-  private startNewPlayback(audio: HTMLAudioElement, url: string, volume: number) {
-    this.cancelBufferWait();
-    audio.pause();
-    audio.src = '';
-    audio.crossOrigin = "anonymous";
-    this.applyAudioVolume(audio, volume);
-
-    if (url.endsWith('m3u8')) {
-      this.handleHLSPlayback(audio, url, volume);
-    } else {
-      audio.src = url;
-      this.applyAudioVolume(audio, volume);
-      if (url.startsWith('https://antares.dribbcast.com/proxy/')) {
-        // 直播串流先等待緩衝就緒，避免只有少量資料時就開始播放。
-        const controller = new AbortController();
-        this.pendingBufferWait = controller;
-        audio.addEventListener('canplaythrough', () => {
-          if (audio.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) return;
-          this.cancelBufferWait();
-          this.currentPlayPromise = audio.play();
-          this.currentPlayPromise.catch(error => {
-            if (error.name !== 'AbortError') console.error("播放失敗：", error);
-          });
-        }, { signal: controller.signal });
-        audio.addEventListener('error', () => this.cancelBufferWait(), {
-          once: true, signal: controller.signal
-        });
-        audio.load();
-        return;
-      }
-      this.currentPlayPromise = audio.play();
-      this.currentPlayPromise.catch(error => {
-        console.error("播放失敗：", error);
-        this.currentPlayPromise = null;
-      });
-    }
+  retryRadioPlayback() {
+    if (!this.isYoutubeMode) this.streamPlayer?.retry();
   }
-
-  private cancelBufferWait() {
-    this.pendingBufferWait?.abort();
-    this.pendingBufferWait = null;
-  }
-
-  private handleHLSPlayback(audio: HTMLAudioElement, url: string, volume: number) {
-    if (Hls.isSupported()) {
-      const hls = new Hls();
-      hls.loadSource(url);
-      hls.attachMedia(audio);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        this.applyAudioVolume(audio, volume);
-        this.currentPlayPromise = audio.play();
-        this.currentPlayPromise.catch(error => {
-          console.error("HLS 播放失敗：", error);
-          this.currentPlayPromise = null;
-        });
-      });
-    } else {
-      console.error("瀏覽器不支援 HLS");
-    }
-  }
-
   // 修改音量控制
   onVolumeChange(event: any) {
     if (!this.isYoutubeMode && this.audioPlayer?.nativeElement) {
@@ -428,7 +348,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
 
   // 修改切換到 YouTube 的方法
   switchToYoutube() {
-    this.cancelBufferWait();
+    this.streamPlayer?.stop();
     const preservedVolume = this.preserveVolumeForSourceSwitch();
     this.isYoutubeMode = true;
     this.currentStation = null;
@@ -532,7 +452,7 @@ export class RadioComponent implements OnDestroy, AfterViewInit {
   }
 
   ngOnDestroy() {
-    this.cancelBufferWait();
+    this.streamPlayer?.destroy();
     if (this.audioPlayer?.nativeElement) {
       this.audioPlayer.nativeElement.pause();
       this.audioPlayer.nativeElement.src = '';

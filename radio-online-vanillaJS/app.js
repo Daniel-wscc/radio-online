@@ -75,20 +75,55 @@ var isDarkMode = false;
 // 本地重排/同步期間，短暫忽略遠端索引更新
 var suppressIndexUpdatesUntil = 0;
 
-// 串流重試相關變數
-var streamRetryTimer = null;
-var streamRetryCount = 0;
-var streamRetryBaseDelay = 2000;  // 基礎延遲 2 秒
-var streamRetryMaxDelay = 15000;  // 最大延遲 15 秒
-var streamStalledTimer = null;
-var streamStalledTimeout = 12000; // 串流停滯超過12秒視為斷線
-var bigBRadioStalledTimeout = 30000; // 留足初始緩衝時間，避免頻繁重連打斷載入
-var pendingRadioBufferCancel = null;
-var streamSourceGeneration = 0;
-var streamPlayStartTime = 0;      // 最近一次成功播放的起始時間
-var isRetryingStream = false;     // 避免同時多個重試
-var isSwitchingSource = false;    // 切換/重設音源時抑制事件
-var lastPlayingTime = 0;          // 上次觸發 playing 事件的時間
+var radioStreamPlayer = null;
+var radioPlaybackPhase = 'idle';
+
+function startRadioTransition(station) {
+    if (!radioStreamPlayer) {
+        radioStreamPlayer = new window.RadioStreamPlayer({
+            host: document.getElementById('playerContainer'),
+            Hls: window.Hls,
+            onState: function (state) {
+                radioPlaybackPhase = state.phase;
+                if (state.audio) audioPlayer = state.audio;
+                var status = document.getElementById('radioLoadStatus');
+                var retry = document.getElementById('radioRetryButton');
+                var message = '';
+                if (state.phase === 'loading' || state.phase === 'retrying') {
+                    message = (state.phase === 'retrying' ? '正在重新載入 ' : '正在載入 ') + state.targetName + '…';
+                    if (state.activeName) message += ' 就緒前保留 ' + state.activeName + ' 的播放。';
+                } else if (state.phase === 'blocked') {
+                    message = '此裝置尚未允許播放，請按「重試播放」。';
+                } else if (state.phase === 'playing') {
+                    message = '本裝置播放中：' + state.activeName;
+                }
+                status.textContent = message;
+                status.hidden = !message;
+                retry.hidden = state.phase !== 'blocked';
+            }
+        });
+    }
+    radioStreamPlayer.setVolume(getSavedVolume());
+    radioStreamPlayer.select(station);
+}
+
+function stopRadioPlayback() {
+    if (radioStreamPlayer) radioStreamPlayer.stop();
+}
+
+function retryRadioPlayback() {
+    if (!isYoutubeMode && radioStreamPlayer) radioStreamPlayer.retry();
+}
+
+window.addEventListener('pagehide', function () {
+    if (radioStreamPlayer) {
+        radioStreamPlayer.destroy();
+        radioStreamPlayer = null;
+    }
+});
+window.addEventListener('pageshow', function (event) {
+    if (event.persisted && !isYoutubeMode && currentStation) startRadioTransition(currentStation);
+});
 
 function capturePlaybackSnapshot() {
     try {
@@ -189,6 +224,7 @@ function applyAudioVolume(volume) {
     if (!audioPlayer) return;
     audioPlayer.volume = volume;
     audioPlayer.muted = volume === 0;
+    if (radioStreamPlayer) radioStreamPlayer.setVolume(volume);
 }
 
 function preserveVolumeForSourceSwitch() {
@@ -361,266 +397,10 @@ function findStationById(id) {
     });
 }
 
-// 清除串流重試相關的計時器
-function clearStreamRetry() {
-    streamSourceGeneration++;
-    cancelRadioBufferWait();
-    isSwitchingSource = false;
-    if (streamRetryTimer) {
-        clearTimeout(streamRetryTimer);
-        streamRetryTimer = null;
-    }
-    if (streamStalledTimer) {
-        clearTimeout(streamStalledTimer);
-        streamStalledTimer = null;
-    }
-    streamRetryCount = 0;
-    isRetryingStream = false;
-    streamPlayStartTime = 0;
-    lastPlayingTime = 0;
-}
-
-// 計算指數退避延遲（2s → 4s → 8s → 15s 上限）
-function getRetryDelay() {
-    var delay = streamRetryBaseDelay * Math.pow(2, Math.min(streamRetryCount, 4));
-    return Math.min(delay, streamRetryMaxDelay);
-}
-
-// 排程一次重試（集中入口，避免多重排程）
-function scheduleStreamRetry() {
-    if (isYoutubeMode || !currentStation) return;
-    if (isRetryingStream) return;
-    if (streamRetryTimer) return;
-    var delay = getRetryDelay();
-    console.log('預計 ' + (delay / 1000) + ' 秒後重試 (次數: ' + (streamRetryCount + 1) + ')');
-    streamRetryTimer = setTimeout(retryCurrentStream, delay);
-}
-
-// 重新連線當前電台串流（無次數限制，持續重試直到成功或切台）
-function retryCurrentStream() {
-    cancelRadioBufferWait();
-    streamRetryTimer = null;
-    if (!currentStation || isYoutubeMode) return;
-    if (isRetryingStream) return;
-
-    isRetryingStream = true;
-    var sourceGeneration = streamSourceGeneration;
-    streamRetryCount++;
-    streamPlayStartTime = 0; // 重置播放起始時間
-    console.log('串流重試 (第 ' + streamRetryCount + ' 次):', currentStation.name);
-
-    try {
-        if (currentStation.url.endsWith('m3u8')) {
-            if (window.hls) {
-                window.hls.startLoad();
-            }
-            isRetryingStream = false;
-        } else {
-            ensureAudioElement();
-            // 切換音源期間抑制 error/waiting/stalled 造成的連鎖重試
-            isSwitchingSource = true;
-            audioPlayer.pause();
-            audioPlayer.removeAttribute('src');
-            audioPlayer.load();
-
-            setTimeout(function () {
-                if (sourceGeneration !== streamSourceGeneration || isYoutubeMode) return;
-                if (!currentStation) {
-                    isSwitchingSource = false;
-                    isRetryingStream = false;
-                    return;
-                }
-                audioPlayer.src = getStreamRequestUrl(currentStation, true);
-                applyAudioVolume(getSavedVolume());
-                audioPlayer.load();
-
-                var playPromise = playBufferedRadio();
-                if (playPromise && typeof playPromise.catch === 'function') {
-                    playPromise.catch(function (error) {
-                        // AbortError 是瀏覽器切換 src 時的正常行為，忽略
-                        if (error && error.name === 'AbortError') {
-                            console.log('忽略 AbortError（切換 src 造成）');
-                            return;
-                        }
-                        console.error('重試播放失敗:', error);
-                        isRetryingStream = false;
-                        scheduleStreamRetry();
-                    });
-                }
-                // 解除抑制（給瀏覽器一點時間處理 src 變更）
-                setTimeout(function () {
-                    if (sourceGeneration !== streamSourceGeneration || isYoutubeMode) return;
-                    isSwitchingSource = false;
-                    isRetryingStream = false;
-                    if (audioPlayer && audioPlayer.readyState < 2) {
-                        startStreamStallTimer('retry-loading');
-                    }
-                }, 1000);
-            }, 300);
-        }
-    } catch (error) {
-        console.error('重試時發生錯誤:', error);
-        isRetryingStream = false;
-        isSwitchingSource = false;
-        scheduleStreamRetry();
-    }
-}
-
-// 綁定串流監聽事件到 audio 元素
-function bindStreamRecoveryEvents(audio) {
-    removeStreamRecoveryEvents(audio);
-
-    audio.addEventListener('stalled', onStreamStalled);
-    audio.addEventListener('waiting', onStreamWaiting);
-    audio.addEventListener('error', onStreamError);
-    audio.addEventListener('playing', onStreamPlaying);
-}
-
-function removeStreamRecoveryEvents(audio) {
-    if (!audio) return;
-    audio.removeEventListener('stalled', onStreamStalled);
-    audio.removeEventListener('waiting', onStreamWaiting);
-    audio.removeEventListener('error', onStreamError);
-    audio.removeEventListener('playing', onStreamPlaying);
-}
-
-function onStreamStalled() {
-    startStreamStallTimer('stalled');
-}
-
-function onStreamWaiting() {
-    startStreamStallTimer('waiting');
-}
-
-function startStreamStallTimer(reason) {
-    if (isYoutubeMode || isSwitchingSource) return;
-    if (streamStalledTimer) return; // 已在計時中
-    var timeout = getStreamStalledTimeout();
-    console.log('串流等待 (' + reason + ')，' + (timeout / 1000) + ' 秒後若未恢復將重試');
-    streamStalledTimer = setTimeout(function () {
-        streamStalledTimer = null;
-        // 再次確認播放器狀態：若已在播放則跳過
-        if (audioPlayer && !audioPlayer.paused && audioPlayer.readyState >= 2) {
-            console.log('串流已恢復，取消重試');
-            return;
-        }
-        console.log('串流持續停滯，嘗試重新連線');
-        scheduleStreamRetry();
-    }, timeout);
-}
-
-function onStreamError(e) {
-    if (isYoutubeMode || isSwitchingSource) return;
-    // 確認是真的錯誤而不是 src 被清空
-    if (!audioPlayer || !audioPlayer.src) return;
-    var err = audioPlayer.error;
-    console.error('串流發生錯誤:', err ? ('code=' + err.code + ' msg=' + err.message) : e);
-    if (streamStalledTimer) {
-        clearTimeout(streamStalledTimer);
-        streamStalledTimer = null;
-    }
-    scheduleStreamRetry();
-}
-
-function onStreamPlaying() {
-    lastPlayingTime = Date.now();
-    if (streamStalledTimer) {
-        clearTimeout(streamStalledTimer);
-        streamStalledTimer = null;
-    }
-    // 播放啟動時間（成功連線）
-    if (streamPlayStartTime === 0) {
-        streamPlayStartTime = Date.now();
-    }
-    // 僅當播放穩定超過 10 秒才重置重試計數，避免極短暫的播放誤判成功
-    if (streamRetryCount > 0) {
-        setTimeout(function () {
-            if (!audioPlayer || audioPlayer.paused) return;
-            var playedDuration = Date.now() - streamPlayStartTime;
-            if (playedDuration >= 10000 && !audioPlayer.paused) {
-                console.log('串流穩定播放 ' + Math.round(playedDuration / 1000) + ' 秒，重置重試計數');
-                streamRetryCount = 0;
-                streamPlayStartTime = 0;
-            }
-        }, 10500);
-    }
-}
-
-// 停止所有音頻源
-function stopAllAudioSources() {
-    console.log('停止所有音頻源');
-
-    // 清除串流重試
-    clearStreamRetry();
-
-    // 停止 HLS 播放器
-    if (window.hls) {
-        try {
-            window.hls.destroy();
-            window.hls = null;
-            console.log('HLS 播放器已銷毀');
-        } catch (e) {
-            console.log('銷毀 HLS 播放器時發生錯誤:', e);
-        }
-    }
-
-    // 停止 video.js 播放器
-    if (window.videoPlayer) {
-        try {
-            window.videoPlayer.pause();
-            window.videoPlayer.dispose();
-            window.videoPlayer = null;
-            console.log('Video.js 播放器已銷毀');
-        } catch (e) {
-            console.log('停止舊播放器時發生錯誤:', e);
-        }
-    }
-
-    // 停止普通音頻播放器
-    if (audioPlayer) {
-        try {
-            audioPlayer.pause();
-            audioPlayer.src = '';
-            audioPlayer.load(); // 強制重新載入
-            console.log('音頻播放器已停止');
-        } catch (e) {
-            console.log('停止音頻播放器時發生錯誤:', e);
-        }
-    }
-}
-
-// 確保音頻元素存在且正確
-function ensureAudioElement() {
-    var existingPlayer = document.getElementById('audioPlayer');
-    if (!existingPlayer) {
-        console.log('創建新的音頻元素');
-        const audioElement = document.createElement('audio');
-        audioElement.id = 'audioPlayer';
-        audioElement.controls = false;
-        audioElement.crossOrigin = 'anonymous';
-        audioElement.preload = 'auto';
-
-        const controlCard = document.getElementById('controlCard');
-        const cardBody = controlCard.querySelector('.card-body');
-        if (cardBody) {
-            cardBody.insertBefore(audioElement, cardBody.firstChild);
-        }
-
-        // 更新全域變數
-        audioPlayer = audioElement;
-        applyAudioVolume(getSavedVolume());
-    } else {
-        // 確保現有元素是正確的
-        audioPlayer = existingPlayer;
-        applyAudioVolume(getSavedVolume());
-        console.log('使用現有的音頻元素');
-    }
-}
-
 // 播放電台
 function playStation(station) {
     console.log('開始播放電台:', station.name, 'URL:', station.url);
-    var selectedVolume = preserveVolumeForSourceSwitch();
+    preserveVolumeForSourceSwitch();
 
     if (isYoutubeMode) {
         isYoutubeMode = false;
@@ -632,9 +412,6 @@ function playStation(station) {
         // 顯示音量控制卡片
         controlCard.style.display = 'block';
     }
-
-    // 在切換電台前先停止所有播放源
-    stopAllAudioSources();
 
     currentStation = station;
     currentStationName.textContent = station.name;
@@ -648,112 +425,8 @@ function playStation(station) {
         }
     });
 
-    // 播放音頻
-    clearStreamRetry();
-    try {
-        if (station.url.endsWith('m3u8')) {
-            playHLSStream(station.url);
-        } else {
-            // 確保使用正確的音頻元素
-            ensureAudioElement();
-            // 綁定串流恢復事件
-            bindStreamRecoveryEvents(audioPlayer);
-
-            audioPlayer.src = getStreamRequestUrl(station, false);
-            // 在設定來源前後都套用，避免 TV 瀏覽器把新媒體元素回復為預設 100%。
-            applyAudioVolume(selectedVolume);
-            audioPlayer.load();
-
-            playBufferedRadio().catch(function (error) {
-                if (error && error.name === 'AbortError') return;
-                console.error('播放失敗：', error);
-                scheduleStreamRetry();
-            });
-        }
-        updateRadioState();
-
-    } catch (error) {
-        console.error('播放失敗：', error);
-    }
-}
-
-// 播放 HLS 流
-function playHLSStream(url) {
-    console.log('開始播放 HLS 串流:', url);
-
-    try {
-        // 確保使用正確的音頻元素
-        ensureAudioElement();
-
-        // 設置初始音量
-        applyAudioVolume(getSavedVolume());
-
-        // 檢查瀏覽器是否支援 HLS
-        if (Hls.isSupported()) {
-            // 如果存在舊的 hls 實例，先銷毀它
-            if (window.hls) {
-                window.hls.destroy();
-                window.hls = null;
-            }
-
-            window.hls = new Hls();
-
-            // 綁定 HLS 事件
-            window.hls.on(Hls.Events.MEDIA_ATTACHED, function () {
-                console.log('HLS 媒體已附加，開始載入源:', url);
-                applyAudioVolume(getSavedVolume());
-                window.hls.loadSource(url);
-            });
-
-            window.hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                console.log('HLS 清單已解析，開始播放');
-                applyAudioVolume(getSavedVolume());
-                audioPlayer.play().catch(function (error) {
-                    console.error('HLS 播放失敗:', error);
-                });
-            });
-
-            window.hls.on(Hls.Events.ERROR, function (event, data) {
-                console.error('HLS error:', data);
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.log('致命網路錯誤，嘗試恢復...');
-                            window.hls.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.log('致命媒體錯誤，嘗試恢復...');
-                            window.hls.recoverMediaError();
-                            break;
-                        default:
-                            console.log('無法恢復的錯誤');
-                            window.hls.destroy();
-                            break;
-                    }
-                }
-            });
-
-            // 附加媒體
-            window.hls.attachMedia(audioPlayer);
-        }
-        // 對於原生支援 HLS 的瀏覽器（如 Safari）
-        else if (audioPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-            console.log('使用原生 HLS 支援');
-            audioPlayer.src = url;
-            audioPlayer.addEventListener('loadedmetadata', function () {
-                console.log('原生 HLS 載入完成，開始播放');
-                applyAudioVolume(getSavedVolume());
-                audioPlayer.play().catch(function (error) {
-                    console.error('原生 HLS 播放失敗:', error);
-                });
-            });
-        } else {
-            console.error('瀏覽器不支援 HLS');
-        }
-
-    } catch (error) {
-        console.error('HLS 串流初始化失敗:', error);
-    }
+    startRadioTransition(station);
+    updateRadioState();
 }
 
 // 更新廣播狀態
@@ -763,7 +436,7 @@ function updateRadioState() {
 
     var state = {
         currentStation: currentStation,
-        isPlaying: !!pendingRadioBufferCancel || !audioPlayer.paused,
+        isPlaying: !isYoutubeMode && radioPlaybackPhase !== 'idle',
         volume: currentVolume,
         youtubeState: {
             isYoutubeMode: isYoutubeMode,
@@ -827,7 +500,7 @@ function setupSocketListeners() {
 function handleStateUpdate(state) {
     // 檢查是否需要切換模式 - 更智能的判斷
     // 只有當明確指定 YouTube 模式時才切換，避免因為缺少 youtubeState 而誤判
-    var incomingYoutubeMode = state.youtubeState && state.youtubeState.isYoutubeMode === true;
+    var incomingYoutubeMode = !!(state.youtubeState && state.youtubeState.isYoutubeMode === true);
     var needModeSwitch = incomingYoutubeMode !== isYoutubeMode;
 
     console.log('模式切換檢查:', {
@@ -860,7 +533,7 @@ function handleStateUpdate(state) {
     }
 
     if (incomingYoutubeMode) {
-        clearStreamRetry();
+        stopRadioPlayback();
         // 強制切換到 YouTube 模式
         isYoutubeMode = true;
         controlCard.style.display = 'none';
@@ -1070,34 +743,10 @@ function handleStateUpdate(state) {
                 newStationId: state.currentStation.id
             });
 
-            // 停止當前播放的音源
-            stopAllAudioSources();
-
             currentStation = state.currentStation;
             currentStationName.textContent = state.currentStation.name;
-
-            // 更新音源並播放
-            clearStreamRetry();
-            if (state.currentStation.url.endsWith('m3u8')) {
-                playHLSStream(state.currentStation.url);
-            } else {
-                // 確保使用正確的音頻元素
-                ensureAudioElement();
-                bindStreamRecoveryEvents(audioPlayer);
-                audioPlayer.src = getStreamRequestUrl(state.currentStation, false);
-
-                // 設定音量
-                applyAudioVolume(getSavedVolume());
-                audioPlayer.load();
-
-                if (state.isPlaying) {
-                    playBufferedRadio().catch(function (error) {
-                        if (error && error.name === 'AbortError') return;
-                        console.log('遠端切換電台播放失敗:', error);
-                        scheduleStreamRetry();
-                    });
-                }
-            }
+            if (state.isPlaying !== false) startRadioTransition(state.currentStation);
+            else stopRadioPlayback();
         } else {
             // 如果不需要切換電台，只更新電台資訊但不中斷播放
             console.log('只更新電台資訊，不中斷播放');
@@ -1127,7 +776,7 @@ function handleInitialState(state) {
     }
 
     // 處理初始電台
-    if (state.currentStation) {
+    if (state.currentStation && !(state.youtubeState && state.youtubeState.isYoutubeMode)) {
         currentStation = state.currentStation;
         currentStationName.textContent = state.currentStation.name;
 
@@ -1140,31 +789,13 @@ function handleInitialState(state) {
             }
         });
 
-        // 設置音源並自動播放
-        clearStreamRetry();
-        if (state.currentStation.url.endsWith('m3u8')) {
-            playHLSStream(state.currentStation.url);
-        } else {
-            // 確保使用正確的音頻元素
-            ensureAudioElement();
-            bindStreamRecoveryEvents(audioPlayer);
-            audioPlayer.src = getStreamRequestUrl(state.currentStation, false);
-
-            // 設置音量
-            applyAudioVolume(getSavedVolume());
-            audioPlayer.load();
-
-            playBufferedRadio().catch(function (error) {
-                if (error && error.name === 'AbortError') return;
-                console.log('初始播放失敗:', error);
-                scheduleStreamRetry();
-            });
-        }
+        if (state.isPlaying !== false) startRadioTransition(state.currentStation);
+        else stopRadioPlayback();
     }
 
     // 處理 YouTube 模式
     if (state.youtubeState && state.youtubeState.isYoutubeMode) {
-        clearStreamRetry();
+        stopRadioPlayback();
         audioPlayer.pause();
         isYoutubeMode = true;
         controlCard.style.display = 'none';
@@ -1204,65 +835,6 @@ function setYoutubeInitStatus(message, isError) {
     status.textContent = message || '';
     status.className = isError ? 'youtube-init-status is-error' : 'youtube-init-status';
     status.style.display = message ? 'block' : 'none';
-}
-
-function cancelRadioBufferWait() {
-    if (pendingRadioBufferCancel) pendingRadioBufferCancel();
-}
-
-function playBufferedRadio() {
-    cancelRadioBufferWait();
-    var player = audioPlayer;
-    if (!isBigBRadioStation(currentStation)) return player.play();
-
-    // 只載入資料；收到足夠緩衝的訊號後才開始播放。
-    return new Promise(function (resolve, reject) {
-        var station = currentStation;
-        function cleanup() {
-            player.removeEventListener('canplaythrough', ready);
-            player.removeEventListener('error', failed);
-            if (pendingRadioBufferCancel === cancel) pendingRadioBufferCancel = null;
-        }
-        function cancel() {
-            cleanup();
-            resolve();
-        }
-        function failed() {
-            cleanup();
-            reject(player.error || new Error('串流緩衝失敗'));
-        }
-        function ready() {
-            if (isYoutubeMode || audioPlayer !== player || (!currentStation || currentStation.id !== station.id || currentStation.url !== station.url)) {
-                cancel();
-                return;
-            }
-            if (player.readyState < 4) return;
-            cleanup();
-            try {
-                Promise.resolve(player.play()).then(resolve, reject);
-            } catch (error) {
-                reject(error);
-            }
-        }
-        pendingRadioBufferCancel = cancel;
-        player.addEventListener('canplaythrough', ready);
-        player.addEventListener('error', failed);
-        ready();
-    });
-}
-
-function isBigBRadioStation(station) {
-    return !!(station && station.url && station.url.indexOf('antares.dribbcast.com/proxy/') !== -1);
-}
-
-function getStreamStalledTimeout() {
-    return isBigBRadioStation(currentStation) ? bigBRadioStalledTimeout : streamStalledTimeout;
-}
-
-function getStreamRequestUrl(station, forceFreshConnection) {
-    if (!forceFreshConnection || !isBigBRadioStation(station)) return station.url;
-    // BigBRadio 偶爾會讓上一個長連線停住；每次重試使用新 URL 以強制瀏覽器重新取流。
-    return station.url + (station.url.indexOf('?') === -1 ? '?' : '&') + '_streamRetry=' + Date.now();
 }
 
 function getYoutubeOrigin() {
@@ -1507,7 +1079,7 @@ function setupYoutubeEventListeners() {
 
 // 切換到 YouTube 模式
 function switchToYoutube() {
-    clearStreamRetry();
+    stopRadioPlayback();
     isYoutubeMode = true;
 
     // 停止所有播放源

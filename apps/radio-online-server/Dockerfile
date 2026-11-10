@@ -28,6 +28,7 @@ RUN echo '{\
     "target": "es6",\
     "moduleResolution": "node10",\
     "skipLibCheck": true,\
+    "allowJs": true,\
     "sourceMap": true,\
     "outDir": "."\
   },\

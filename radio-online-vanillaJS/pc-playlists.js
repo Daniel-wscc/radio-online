@@ -234,7 +234,7 @@
                 for (i = 0; i < detailItems.length; i++) {
                     queue.push({ id: detailItems[i].videoId, title: detailItems[i].title || detailItems[i].videoId });
                 }
-                socket.emit('addPlaylist', queue);
+                socket.emit('queueReplace', { items: queue.map(function (item) { return { videoId: item.id, title: item.title }; }) });
             });
         }
         var form = document.getElementById('addSongsForm');
@@ -251,7 +251,7 @@
                 var id = Number(this.getAttribute('data-queue-id'));
                 var item = findItem(id);
                 if (!item) return;
-                socket.emit('addPlaylist', [{ id: item.videoId, title: item.title || item.videoId }]);
+                socket.emit('queueReplace', { items: [{ videoId: item.videoId, title: item.title || item.videoId }] });
             });
         }
         var removeButtons = detailView.querySelectorAll('[data-remove-item]');

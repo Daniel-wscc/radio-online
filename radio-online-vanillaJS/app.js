@@ -283,6 +283,9 @@ var prevButton = document.getElementById('prevButton');
 var nextButton = document.getElementById('nextButton');
 var savedVolume = volumeSlider ? parseFloat(volumeSlider.value) / 10 : 1;
 var volumeSyncLockUntil = 0;
+var volumeDragging = false;
+var deferredServerVolume = null;
+var appliedRevision = -1;
 
 function getPlaylistVideoId(items, index) {
     return items && index >= 0 && items[index] ? items[index].id : null;
@@ -317,9 +320,27 @@ function applyAudioVolume(volume) {
 
 function preserveVolumeForSourceSwitch() {
     var volume = rememberVolume();
-    // 忽略切換過程中晚到的舊同步狀態，避免把新播放器重設為 100%。
+    // 切台當下先保住本機音量。有版號的伺服器狀態仍會在拖曳結束或保護期結束後套用，不會永遠丟掉。
     volumeSyncLockUntil = Date.now() + 2000;
+    setTimeout(flushDeferredVolume, 2100);
     return volume;
+}
+
+function flushDeferredVolume() {
+    if (volumeDragging || deferredServerVolume == null || Date.now() < volumeSyncLockUntil) return;
+    var volume = deferredServerVolume;
+    deferredServerVolume = null;
+    rememberVolume(volume);
+    if (isYoutubeMode) syncYoutubeVolume();
+    else applyAudioVolume(volume);
+    if (typeof updateMuteButton === 'function') updateMuteButton();
+}
+
+function endVolumeDrag() {
+    if (!volumeDragging) return;
+    volumeDragging = false;
+    if (socket) socket.emit('setVolume', { volume: getSavedVolume() });
+    deferredServerVolume = null;
 }
 
 // 初始化
@@ -423,9 +444,12 @@ function setupEventListeners() {
             clearTimeout(volumeDebounceTimer);
         }
         volumeDebounceTimer = setTimeout(function () {
-            updateRadioState();
+            if (socket) socket.emit('setVolume', { volume: getSavedVolume() });
         }, volumeDebounceDelay);
     });
+    volumeSlider.addEventListener('pointerdown', function () { volumeDragging = true; });
+    volumeSlider.addEventListener('pointerup', endVolumeDrag);
+    volumeSlider.addEventListener('pointercancel', endVolumeDrag);
 
     // 初始化滑桿顏色（將 0-10 的值轉換為 0-100 的百分比）
     volumeSlider.style.setProperty('--value', (volumeSlider.value * 10) + '%');
@@ -554,32 +578,9 @@ function playStation(station) {
 
 // 更新廣播狀態
 function updateRadioState() {
-    // 獲取當前音量值
-    var currentVolume = getSavedVolume();
-
-    var state = {
-        currentStation: currentStation,
-        isPlaying: !isYoutubeMode && radioPlaybackPhase !== 'idle',
-        volume: currentVolume,
-        youtubeState: {
-            isYoutubeMode: isYoutubeMode,
-            playlist: playlist,
-            currentIndex: currentVideoIndex,
-            currentVideoId: getPlaylistVideoId(playlist, currentVideoIndex)
-        }
-    };
-
-    // 避免無限循環：只有當播放清單有變化時才發送 addPlaylist
-    if (!playlistsEqual(playlist, lastSentPlaylist)) {
-        lastSentPlaylist = playlist.slice();
-        socket.emit('updateRadioState', state);
-
-        if (isYoutubeMode && playlist.length > 0 && !isLoadingPlaylist) {
-            socket.emit('addPlaylist', playlist);
-        }
-    } else {
-        socket.emit('updateRadioState', state);
-    }
+    // 只送目前這次的意圖。音量與佇列走各自的指令，避免把過期的整包狀態蓋回去。
+    if (!socket || !currentStation || isYoutubeMode) return;
+    socket.emit('setStation', { station: currentStation });
 }
 
 // 新增：只同步播放清單，不觸發播放狀態更新
@@ -623,6 +624,16 @@ function setupSocketListeners() {
 
 // 新增處理狀態更新的函數
 function handleStateUpdate(state) {
+    var syncApi = window.RadioSyncClient;
+    if (syncApi && typeof state.revision === 'number' &&
+        syncApi.isStaleRevision(appliedRevision, state.revision)) {
+        return;
+    }
+    if (typeof state.revision === 'number') {
+        appliedRevision = syncApi
+            ? syncApi.nextAppliedRevision(appliedRevision, state.revision)
+            : state.revision;
+    }
     // 檢查是否需要切換模式 - 更智能的判斷
     // 只有當明確指定 YouTube 模式時才切換，避免因為缺少 youtubeState 而誤判
     var incomingYoutubeMode = !!(state.youtubeState && state.youtubeState.isYoutubeMode === true);
@@ -641,7 +652,15 @@ function handleStateUpdate(state) {
         var shouldKeepLocalVolume = Date.now() < volumeSyncLockUntil &&
             Math.abs(incomingVolume - getSavedVolume()) > 0.001;
 
-        if (shouldKeepLocalVolume) {
+        var draggingNow = typeof volumeDragging !== 'undefined' && volumeDragging;
+        var volumeDecision = syncApi
+            ? syncApi.reconcileVolume(draggingNow, deferredServerVolume, incomingVolume)
+            : { applyNow: !draggingNow, deferredVolume: draggingNow ? incomingVolume : null, volume: incomingVolume };
+        if (!volumeDecision.applyNow) {
+            deferredServerVolume = volumeDecision.deferredVolume;
+            console.log('拖曳音量中，先記住伺服器音量:', incomingVolume);
+        } else if (shouldKeepLocalVolume && typeof state.revision !== 'number') {
+            deferredServerVolume = incomingVolume;
             console.log('切換來源期間保留本機音量:', getSavedVolume());
         } else {
             rememberVolume(incomingVolume);
@@ -688,11 +707,6 @@ function handleStateUpdate(state) {
                 youtubePlayer.stopVideo();
             }
         } else {
-            // 本地保護期：忽略遠端索引/影片ID更新，避免重排引發跳動
-            if (Date.now() < suppressIndexUpdatesUntil) {
-                console.log('本地重排保護期內，忽略遠端索引/影片ID更新');
-                return;
-            }
             var oldVideoId = getPlaylistVideoId(playlist, currentVideoIndex);
             var newVideoId = getPlaylistVideoId(state.youtubeState.playlist, state.youtubeState.currentIndex);
 
@@ -768,8 +782,9 @@ function handleStateUpdate(state) {
                 console.log('播放清單有內容但沒有設置當前影片，自動選擇第一首');
                 currentVideoIndex = 0;
                 newVideoId = playlist[0].id;
-                // 更新遠端狀態
-                updateRadioState();
+                if (socket && playlist[0].itemId) {
+                    socket.emit('playIndex', { index: 0, itemId: playlist[0].itemId });
+                }
             }
 
             // 在以下情況需要載入新影片：
@@ -1259,47 +1274,31 @@ function switchToYoutube() {
 
     updatePlaylistUI();
     updateNavigationButtons();
-
-    // 避免無限循環：只在播放清單為空時從伺服器載入
-    if (playlist.length === 0 && !isLoadingPlaylist) {
-        isLoadingPlaylist = true;
-        socket.emit('loadPlaylist');
-        setTimeout(function () {
-            isLoadingPlaylist = false;
-        }, 1000);
-    }
+    if (socket) socket.emit('setMode', { mode: 'youtube' });
 }
 
 // 載入 YouTube 播放清單
 function loadYoutubePlaylist() {
-    var urls = youtubeUrlInput.value.split('\n').filter(function (url) {
-        return url.trim() !== '';
-    });
-
-    var processedUrls = 0;
-    urls.forEach(function (url) {
-        var videoId = extractVideoId(url);
-        if (videoId) {
-            getVideoDetails(videoId, function (title) {
-                playlist.push({
-                    id: videoId,
-                    title: title || videoId
-                });
-                processedUrls++;
-
-                if (processedUrls === urls.length) {
-                    updatePlaylistUI();
-                    // 如果是第一個視頻，自動播放
-                    if (playlist.length === 1) {
-                        playYoutubeIndex(0);
-                    }
-                    updatePlaylistOnly();
-                }
-            });
-        }
-    });
-
+    var parsed = window.RadioSyncClient
+        ? RadioSyncClient.collectYoutubeImport(youtubeUrlInput.value, extractVideoId)
+        : [];
     youtubeUrlInput.value = '';
+    if (!parsed.length) return;
+    var titles = new Array(parsed.length);
+    var done = 0;
+    parsed.forEach(function (item, index) {
+        getVideoDetails(item.videoId, function (title) {
+            titles[index] = title || item.videoId;
+            done++;
+            if (done !== parsed.length) return;
+            var payload = [];
+            var i;
+            for (i = 0; i < parsed.length; i++) {
+                payload.push({ videoId: parsed[i].videoId, title: titles[i] });
+            }
+            if (socket) socket.emit('queueAddMany', { items: payload });
+        });
+    });
 }
 
 // 更新播放清單 UI
@@ -1361,27 +1360,21 @@ function updatePlaylistUI() {
 }
 
 function movePlaylistItem(from, to) {
+    var item = playlist[from];
+    if (!item) return;
+    if (socket && item.itemId) socket.emit('queueMove', { itemId: item.itemId, toIndex: to });
     if (!window.PlaylistOrder || typeof PlaylistOrder.moveItem !== 'function') return;
     var snapshot = capturePlaybackSnapshot();
     var result = PlaylistOrder.moveItem(playlist, from, to, currentVideoIndex);
     playlist = result.list;
     currentVideoIndex = result.currentIndex;
-    suppressIndexUpdatesUntil = Date.now() + 800;
     updatePlaylistUI();
-    updateRadioState();
     setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 100);
 }
 
 function shufflePlaylist() {
-    if (!window.PlaylistOrder || playlist.length <= 1) return;
-    var snapshot = capturePlaybackSnapshot();
-    var result = PlaylistOrder.shuffleKeepCurrent(playlist, currentVideoIndex);
-    playlist = result.list;
-    currentVideoIndex = result.currentIndex;
-    suppressIndexUpdatesUntil = Date.now() + 800;
-    updatePlaylistUI();
-    updateRadioState();
-    setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 100);
+    if (!playlist || playlist.length <= 1) return;
+    if (socket) socket.emit('shuffleQueue');
 }
 
 function toggleYoutubePlayback() {
@@ -1420,7 +1413,7 @@ function toggleMute() {
     updateMuteButton();
     if (volumeDebounceTimer) clearTimeout(volumeDebounceTimer);
     volumeDebounceTimer = setTimeout(function () {
-        updateRadioState();
+        if (socket) socket.emit('setVolume', { volume: getSavedVolume() });
     }, volumeDebounceDelay);
 }
 
@@ -1469,13 +1462,15 @@ function playYoutubeIndex(index) {
             }, 500);
         }
         updatePlaylistUI();
-        updateRadioState();
+        if (socket) socket.emit('playIndex', { index: index, itemId: playlist[index].itemId || null });
     }
 }
 
 // 從播放清單中移除
 function removeFromPlaylist(index) {
     var snapshot = capturePlaybackSnapshot();
+    var item = playlist[index];
+    if (socket && item && item.itemId) socket.emit('queueRemove', { itemId: item.itemId });
     playlist.splice(index, 1);
     if (currentVideoIndex === index) {
         if (playlist.length > 0) {
@@ -1484,14 +1479,10 @@ function removeFromPlaylist(index) {
             currentVideoIndex = -1;
             if (youtubePlayer && youtubePlayer.stopVideo) youtubePlayer.stopVideo();
             updatePlaylistUI();
-            updateRadioState();
-            socket.emit('clearPlaylist');
         }
     } else {
         if (currentVideoIndex > index) currentVideoIndex--;
-        suppressIndexUpdatesUntil = Date.now() + 800;
         updatePlaylistUI();
-        updateRadioState();
     }
     setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 100);
 }
@@ -1504,11 +1495,8 @@ function clearYoutubePlaylist() {
         youtubePlayer.stopVideo();
     }
     updatePlaylistUI();
-    updateRadioState();
     updateNavigationButtons();
-
-    // 清除伺服器上的播放清單
-    socket.emit('clearPlaylist');
+    if (socket) socket.emit('queueClear');
 }
 
 // 修改 onPlayerStateChange 函數
@@ -1550,7 +1538,6 @@ function onPlayerStateChange(event) {
                 console.log('恢復全螢幕失敗:', error);
             }
         }
-        updateRadioState();
     }
 }
 

@@ -220,7 +220,9 @@ test('TV remote snapshots select B without pausing A; volume-only snapshots do n
         normalizeVolume: v => v, rememberVolume() {}, applyAudioVolume() {}, getSavedVolume: () => 0.5,
         radioPlaybackPhase: 'loading', playlist: [], currentVideoIndex: -1, lastSentPlaylist: [],
         getPlaylistVideoId: () => null, playlistsEqual: () => true,
-        socket: { emit: (name, data) => sent.push(data) }
+        socket: { emit: (name, data) => sent.push({ name, data }) },
+        appliedRevision: -1, volumeDragging: false, deferredServerVolume: null,
+        RadioSyncClient: { isStaleRevision: () => false, nextAppliedRevision: (a, b) => b, reconcileVolume: () => ({ applyNow: true, volume: 0.4, deferredVolume: null }) }
     });
     vm.runInContext(code, context);
     context.handleStateUpdate({ currentStation: B, isPlaying: true });
@@ -229,8 +231,8 @@ test('TV remote snapshots select B without pausing A; volume-only snapshots do n
     context.handleStateUpdate({ currentStation: { ...B }, volume: 0.4, isPlaying: true });
     assert.equal(selected.length, 1, 'missing youtubeState must not be interpreted as a mode switch');
     context.updateRadioState();
-    assert.equal(sent[0].currentStation.id, B.id);
-    assert.equal(sent[0].isPlaying, true, 'broadcast intent, not candidate.paused');
+    assert.equal(sent[0].name, 'setStation');
+    assert.equal(sent[0].data.station.id, B.id);
     context.handleInitialState({ currentStation: C, isPlaying: true });
     assert.equal(selected.at(-1).id, C.id);
     assert.equal(pauses, 0);

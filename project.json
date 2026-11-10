@@ -114,7 +114,14 @@
         "scripts": []
       }
     },
+    "check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node tests/run-all.cjs"
+      }
+    },
     "deploy": {
+      "dependsOn": ["check"],
       "executor": "nx:run-commands",
       "options": {
         "commands": [

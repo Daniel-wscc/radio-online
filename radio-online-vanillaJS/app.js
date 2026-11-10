@@ -70,8 +70,11 @@ var youtubePlayerReady = false;
 var youtubePlayerReadyTimer = null;
 var youtubeApiMaxAttempts = 3;
 var youtubeApiUrl = 'https://www.youtube.com/iframe_api';
-var socket = io('https://radio.wscc1031.synology.me');
+var socket = io(window.RADIO_SOCKET_URL || 'https://radio.wscc1031.synology.me');
 var isDarkMode = false;
+var isMuted = false;
+var volumeBeforeMute = 1;
+var darkThemeNames = ['dark', 'synthwave', 'forest', 'coffee', 'dracula'];
 // 本地重排/同步期間，短暫忽略遠端索引更新
 var suppressIndexUpdatesUntil = 0;
 
@@ -103,6 +106,7 @@ function startRadioTransition(station) {
             }
         });
     }
+    // 先套用遠端或本機音量，再開始載入新電台，避免重新整理時新串流以 100% 起播。
     radioStreamPlayer.setVolume(getSavedVolume());
     radioStreamPlayer.select(station);
 }
@@ -158,6 +162,42 @@ function restorePlaybackSnapshot(snapshot) {
 var wasFullscreen = false;
 
 // 共用：確保 YouTube 播放器音量與滑桿一致
+function placeVolumeControl() {
+    var control = document.getElementById('volumeControl');
+    var host = document.getElementById(isYoutubeMode ? 'youtubeVolumeHost' : 'radioVolumeHost');
+    if (!control || !host || control.parentNode === host) return;
+    host.appendChild(control);
+}
+
+function escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function currentUserName() {
+    try {
+        return localStorage.getItem('userName') || '訪客';
+    } catch (error) {
+        return '訪客';
+    }
+}
+
+function announcePlayback(text) {
+    if (window.isTv || !window.PcChat || typeof window.PcChat.system !== 'function') return;
+    window.PcChat.system(text);
+}
+
+function isDarkThemeName(name) {
+    var i;
+    for (i = 0; i < darkThemeNames.length; i++) {
+        if (darkThemeNames[i] === name) return true;
+    }
+    return false;
+}
+
 function syncYoutubeVolume() {
     try {
         var currentVolume = getSavedVolume();
@@ -236,11 +276,19 @@ function preserveVolumeForSourceSwitch() {
 
 // 初始化
 function init() {
+    if (window.isTv) {
+        var heading = document.getElementById('appHeading');
+        var foot = document.getElementById('appTitle');
+        if (heading) heading.textContent = '芯禾電台 TV';
+        if (foot) foot.textContent = '芯禾電台 TV';
+    }
     loadStations();
     setupEventListeners();
     setupYoutubeEventListeners();
     setupSocketListeners();
     setupTheme();
+    placeVolumeControl();
+    if (window.NowPlaying && typeof NowPlaying.init === 'function') NowPlaying.init(customStations);
     loadYouTubeAPI();
 
     // 請求當前狀態並設置初始播放
@@ -262,12 +310,25 @@ function loadStations() {
 }
 
 // 創建電台元素
+function isBigBStation(station) {
+    if (window.NowPlaying && typeof NowPlaying.isBigB === 'function') return NowPlaying.isBigB(station);
+    return /antares\.dribbcast\.com\/proxy\/[A-Za-z]+/.test(station && station.url || '');
+}
+
 function createStationElement(station) {
+    var nowPlaying = '';
+    if (isBigBStation(station)) {
+        nowPlaying = '<div class="now-playing-container" data-now-playing="' + station.id + '">' +
+            '<span class="now-playing-label">現正播放：</span>' +
+            '<div class="now-playing-text" data-text="">載入中...</div>' +
+            '</div>';
+    }
     return '<div class="list-group-item station-item" data-station-id="' + station.id + '">' +
-        '<div class="station-name">' + station.name + '</div>' +
+        '<div class="station-name">' + escapeHtml(station.name) + '</div>' +
         '<div class="station-tags">' +
         createTagsHtml(station.tags) +
         '</div>' +
+        nowPlaying +
         '</div>';
 }
 
@@ -307,6 +368,7 @@ function setupEventListeners() {
 
         // 更新滑桿顏色（將 0-10 的值轉換為 0-100 的百分比）
         e.target.style.setProperty('--value', (e.target.value * 10) + '%');
+        updateMuteButton();
 
         // 使用防抖機制發送音量更新到伺服器
         if (volumeDebounceTimer) {
@@ -371,6 +433,13 @@ function setupEventListeners() {
         }
     });
 
+    var playPauseButton = document.getElementById('playPauseButton');
+    var muteButton = document.getElementById('muteButton');
+    var shuffleButton = document.getElementById('shuffleButton');
+    if (playPauseButton) playPauseButton.addEventListener('click', toggleYoutubePlayback);
+    if (muteButton) muteButton.addEventListener('click', toggleMute);
+    if (shuffleButton) shuffleButton.addEventListener('click', shufflePlaylist);
+
     // 監聽全螢幕狀態變更
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
@@ -426,7 +495,9 @@ function playStation(station) {
     });
 
     startRadioTransition(station);
+    placeVolumeControl();
     updateRadioState();
+    announcePlayback(currentUserName() + ' 切換到 ' + station.name);
 }
 
 // 更新廣播狀態
@@ -520,6 +591,8 @@ function handleStateUpdate(state) {
             console.log('切換來源期間保留本機音量:', getSavedVolume());
         } else {
             rememberVolume(incomingVolume);
+            isMuted = incomingVolume === 0;
+            if (typeof updateMuteButton === 'function') updateMuteButton();
             // 更新播放器音量，但不中斷播放
             if (isYoutubeMode && youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
                 syncYoutubeVolume();
@@ -539,6 +612,7 @@ function handleStateUpdate(state) {
         controlCard.style.display = 'none';
         youtubeSection.style.display = 'block';
         currentStationName.textContent = 'YouTube 播放器';
+        if (typeof placeVolumeControl === 'function') placeVolumeControl();
         // 必須先顯示容器，部分電視瀏覽器才能建立 iframe。
         ensureYoutubePlayerReady();
 
@@ -730,6 +804,7 @@ function handleStateUpdate(state) {
             youtubePlayer.stopVideo();
         }
         controlCard.style.display = 'block';
+        if (typeof placeVolumeControl === 'function') placeVolumeControl();
 
         // 檢查是否真的需要切換電台或從 YouTube 模式切換回電台
         // 只有在電台真的不同或需要模式切換時才中斷播放
@@ -800,13 +875,23 @@ function handleInitialState(state) {
         isYoutubeMode = true;
         controlCard.style.display = 'none';
         youtubeSection.style.display = 'block';
+        if (typeof placeVolumeControl === 'function') placeVolumeControl();
         ensureYoutubePlayerReady();
     }
+    if (typeof placeVolumeControl === 'function') placeVolumeControl();
 }
 
 // 設置主題
 function setupTheme() {
-    isDarkMode = localStorage.getItem('theme') === 'dark';
+    var saved = 'light';
+    try {
+        saved = localStorage.getItem('theme') || 'light';
+    } catch (error) {
+        saved = 'light';
+    }
+    // 電視只有深色／淺色。若電腦存過其他深色主題，電視改套用既有深色樣式。
+    if (window.isTv) isDarkMode = saved === 'dark' || isDarkThemeName(saved);
+    else isDarkMode = saved === 'dark';
     applyTheme();
 }
 
@@ -1097,10 +1182,12 @@ function switchToYoutube() {
         audioPlayer.src = '';
     }
 
-    // 隱藏音量控制卡片
+    // 隱藏電台卡片，音量列改掛到 YouTube 區，遙控器仍可調音量。
     controlCard.style.display = 'none';
     youtubeSection.style.display = 'block';
     currentStationName.textContent = 'YouTube 播放器';
+    placeVolumeControl();
+    announcePlayback(currentUserName() + ' 切換到 YouTube 模式');
 
     // 必須在容器顯示後才建立播放器；某些電視瀏覽器無法初始化 display:none 內的 iframe。
     ensureYoutubePlayerReady();
@@ -1167,32 +1254,148 @@ function updatePlaylistUI() {
     playlist.forEach(function (video, index) {
         var item = document.createElement('div');
         item.className = 'playlist-item' + (index === currentVideoIndex ? ' active' : '');
+        var savedButton = window.isTv ? '' :
+            '<button type="button" class="btn btn-sm btn-success add-saved-btn" data-index="' + index + '" title="加入我的播放清單">' +
+            '<i class="bi bi-plus-lg"></i>' +
+            '</button>';
         item.innerHTML =
-            '<div class="d-flex justify-content-between align-items-center w-100">' +
-            '<span>' + (video.title || video.id) + '</span>' +
-            '<div class="btn-group">' +
-            '<button class="btn btn-sm btn-primary play-btn" data-index="' + index + '">' +
+            '<div class="d-flex justify-content-between align-items-center w-100 gap-2">' +
+            '<span class="playlist-title">' + escapeHtml(video.title || video.id) + '</span>' +
+            '<div class="playlist-actions btn-group">' +
+            '<button type="button" class="btn btn-sm btn-outline-secondary move-up-btn" data-index="' + index + '" title="上移"' + (index === 0 ? ' disabled' : '') + '>' +
+            '<i class="bi bi-arrow-up"></i>' +
+            '</button>' +
+            '<button type="button" class="btn btn-sm btn-outline-secondary move-down-btn" data-index="' + index + '" title="下移"' + (index === playlist.length - 1 ? ' disabled' : '') + '>' +
+            '<i class="bi bi-arrow-down"></i>' +
+            '</button>' +
+            '<button type="button" class="btn btn-sm btn-primary play-btn" data-index="' + index + '" title="播放">' +
             '<i class="bi bi-play-fill"></i>' +
             '</button>' +
-            '<button class="btn btn-sm btn-danger remove-btn" data-index="' + index + '">' +
+            savedButton +
+            '<button type="button" class="btn btn-sm btn-danger remove-btn" data-index="' + index + '" title="移除">' +
             '<i class="bi bi-trash"></i>' +
             '</button>' +
             '</div>' +
             '</div>';
 
-        // 添加事件監聽器
-        item.querySelector('.play-btn').addEventListener('click', function () {
-            playYoutubeIndex(index);
+        item.querySelector('.play-btn').addEventListener('click', function (event) {
+            playYoutubeIndex(parseInt(event.currentTarget.getAttribute('data-index'), 10));
         });
-        item.querySelector('.remove-btn').addEventListener('click', function () {
-            removeFromPlaylist(index);
+        item.querySelector('.remove-btn').addEventListener('click', function (event) {
+            removeFromPlaylist(parseInt(event.currentTarget.getAttribute('data-index'), 10));
         });
+        item.querySelector('.move-up-btn').addEventListener('click', function (event) {
+            var from = parseInt(event.currentTarget.getAttribute('data-index'), 10);
+            movePlaylistItem(from, from - 1);
+        });
+        item.querySelector('.move-down-btn').addEventListener('click', function (event) {
+            var from = parseInt(event.currentTarget.getAttribute('data-index'), 10);
+            movePlaylistItem(from, from + 1);
+        });
+        var addSaved = item.querySelector('.add-saved-btn');
+        if (addSaved) {
+            addSaved.addEventListener('click', function (event) {
+                var at = parseInt(event.currentTarget.getAttribute('data-index'), 10);
+                if (window.PcPlaylists && typeof window.PcPlaylists.promptAdd === 'function') {
+                    window.PcPlaylists.promptAdd(playlist[at]);
+                }
+            });
+        }
 
         playlistContainer.appendChild(item);
     });
 
-    // 更新按鈕狀態
     updateNavigationButtons();
+}
+
+function movePlaylistItem(from, to) {
+    if (!window.PlaylistOrder || typeof PlaylistOrder.moveItem !== 'function') return;
+    var snapshot = capturePlaybackSnapshot();
+    var result = PlaylistOrder.moveItem(playlist, from, to, currentVideoIndex);
+    playlist = result.list;
+    currentVideoIndex = result.currentIndex;
+    suppressIndexUpdatesUntil = Date.now() + 800;
+    updatePlaylistUI();
+    updateRadioState();
+    setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 100);
+}
+
+function shufflePlaylist() {
+    if (!window.PlaylistOrder || playlist.length <= 1) return;
+    var snapshot = capturePlaybackSnapshot();
+    var result = PlaylistOrder.shuffleKeepCurrent(playlist, currentVideoIndex);
+    playlist = result.list;
+    currentVideoIndex = result.currentIndex;
+    suppressIndexUpdatesUntil = Date.now() + 800;
+    updatePlaylistUI();
+    updateRadioState();
+    setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 100);
+}
+
+function toggleYoutubePlayback() {
+    if (!playlist.length) return;
+    if (!youtubePlayer || typeof youtubePlayer.getPlayerState !== 'function') {
+        if (currentVideoIndex < 0) playYoutubeIndex(0);
+        return;
+    }
+    var state = -1;
+    try {
+        state = youtubePlayer.getPlayerState();
+    } catch (error) {
+        state = -1;
+    }
+    var playing = typeof YT !== 'undefined' && YT.PlayerState && state === YT.PlayerState.PLAYING;
+    if (playing && typeof youtubePlayer.pauseVideo === 'function') {
+        youtubePlayer.pauseVideo();
+    } else if (currentVideoIndex < 0) {
+        playYoutubeIndex(0);
+    } else if (typeof youtubePlayer.playVideo === 'function') {
+        youtubePlayer.playVideo();
+    }
+}
+
+function toggleMute() {
+    if (getSavedVolume() > 0) {
+        volumeBeforeMute = getSavedVolume();
+        rememberVolume(0);
+    } else {
+        rememberVolume(volumeBeforeMute > 0 ? volumeBeforeMute : 1);
+    }
+    isMuted = getSavedVolume() === 0;
+    volumeSyncLockUntil = Date.now() + 1000;
+    if (isYoutubeMode) syncYoutubeVolume();
+    else applyAudioVolume(getSavedVolume());
+    updateMuteButton();
+    if (volumeDebounceTimer) clearTimeout(volumeDebounceTimer);
+    volumeDebounceTimer = setTimeout(function () {
+        updateRadioState();
+    }, volumeDebounceDelay);
+}
+
+function updateMuteButton() {
+    var button = document.getElementById('muteButton');
+    if (!button) return;
+    var muted = getSavedVolume() === 0;
+    isMuted = muted;
+    button.innerHTML = muted ? '<i class="bi bi-volume-mute-fill"></i>' : '<i class="bi bi-volume-up-fill"></i>';
+    button.setAttribute('title', muted ? '取消靜音' : '靜音');
+    button.setAttribute('aria-pressed', muted ? 'true' : 'false');
+}
+
+function updatePlayPauseButton() {
+    var button = document.getElementById('playPauseButton');
+    if (!button) return;
+    var playing = false;
+    try {
+        playing = !!(youtubePlayer && typeof youtubePlayer.getPlayerState === 'function' &&
+            typeof YT !== 'undefined' && YT.PlayerState &&
+            youtubePlayer.getPlayerState() === YT.PlayerState.PLAYING);
+    } catch (error) {
+        playing = false;
+    }
+    button.innerHTML = playing ? '<i class="bi bi-pause-fill"></i>' : '<i class="bi bi-play-fill"></i>';
+    button.setAttribute('title', playing ? '暫停' : '播放');
+    button.setAttribute('aria-label', playing ? '暫停' : '播放');
 }
 
 // 播放指定索引的視頻
@@ -1227,15 +1430,17 @@ function removeFromPlaylist(index) {
             playYoutubeIndex(Math.min(index, playlist.length - 1));
         } else {
             currentVideoIndex = -1;
-            if (youtubePlayer) {
-                youtubePlayer.stopVideo();
-            }
+            if (youtubePlayer && youtubePlayer.stopVideo) youtubePlayer.stopVideo();
+            updatePlaylistUI();
+            updateRadioState();
+            socket.emit('clearPlaylist');
         }
-    } else if (currentVideoIndex > index) {
-        currentVideoIndex--;
+    } else {
+        if (currentVideoIndex > index) currentVideoIndex--;
+        suppressIndexUpdatesUntil = Date.now() + 800;
+        updatePlaylistUI();
+        updateRadioState();
     }
-    updatePlaylistUI();
-    updatePlaylistOnly();
     setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 100);
 }
 
@@ -1256,6 +1461,7 @@ function clearYoutubePlaylist() {
 
 // 修改 onPlayerStateChange 函數
 function onPlayerStateChange(event) {
+    updatePlayPauseButton();
     // 當視頻結束時
     if (event.data === YT.PlayerState.ENDED) {
         // 記錄當前的全螢幕狀態
@@ -1324,6 +1530,9 @@ function updateNavigationButtons() {
         prevButton.disabled = currentVideoIndex <= 0;
         nextButton.disabled = currentVideoIndex >= playlist.length - 1;
     }
+    var shuffleButton = document.getElementById('shuffleButton');
+    if (shuffleButton) shuffleButton.disabled = playlist.length <= 1;
+    if (typeof updatePlayPauseButton === 'function') updatePlayPauseButton();
 }
 
 // 處理全螢幕狀態變更

@@ -1,108 +1,129 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <title>芯禾電台 電視TV專用版</title>
-    <!-- Cache Control -->
+    <title>芯禾電台</title>
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Bootstrap Icons -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
-    <!-- 動態版本號，確保每次載入都是最新的本地資源 -->
-    <script>window.__assetVer = Date.now();</script>
-    <script>document.write('<link href="styles.css?v=' + window.__assetVer + '" rel="stylesheet">');</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:,">
+    <script>window.__assetVer = Date.now();</script>
+    <script>document.write('<script src="platform.js?v=' + window.__assetVer + '"><\/script>');</script>
+    <script>document.write(
+        '<link rel="stylesheet" href="vendor/bootstrap/css/bootstrap.min.css?v=' + window.__assetVer + '">' +
+        '<link rel="stylesheet" href="vendor/bootstrap-icons/bootstrap-icons.css?v=' + window.__assetVer + '">' +
+        '<link rel="stylesheet" href="styles.css?v=' + window.__assetVer + '">'
+    );</script>
 </head>
 <body>
+    <button type="button" id="mobileMenuButton" class="pc-only mobile-station-toggle btn btn-primary" aria-label="開啟電台清單" aria-controls="stationSidebar" aria-expanded="false">
+        <i class="bi bi-list"></i>
+    </button>
+    <button type="button" id="mobileSidebarBackdrop" class="pc-only mobile-sidebar-backdrop" aria-label="關閉電台清單"></button>
+
     <div class="container-fluid">
         <div class="row flex-column flex-md-row vh-100">
-            <!-- 左側選單 -->
-            <div class="col-md-3 sidebar order-1 order-md-1">
-                <div class="d-flex justify-content-between align-items-center p-3 bg-dark text-white">
+            <div id="stationSidebar" class="col-md-3 sidebar order-1 d-flex flex-column">
+                <div class="d-flex justify-content-between align-items-center p-3 bg-dark text-white sidebar-header">
                     <div class="d-flex align-items-center">
-                        <h2 class="mb-0">芯禾電台TV</h2>
+                        <h2 class="mb-0" id="appHeading">芯禾電台</h2>
                         <span class="badge bg-success ms-2" id="onlineUsers">線上人數: 0</span>
                     </div>
-                    <button class="btn btn-outline-light" id="themeToggle">
-                        <i class="bi bi-moon"></i>
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="dropdown pc-only" id="themeSwitcher">
+                            <button class="btn btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-palette"></i> <span id="themeCurrent">主題</span>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" id="themeMenu"></ul>
+                        </div>
+                        <button class="btn btn-outline-light" id="themeToggle" type="button" title="切換深色或淺色">
+                            <i class="bi bi-moon"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="p-3 border-bottom pc-only">
+                    <button type="button" class="btn btn-outline-primary w-100 pc-only" id="openPlaylistsButton">
+                        <i class="bi bi-music-note-list"></i> 我的播放清單
                     </button>
                 </div>
 
                 <div id="stationList" class="list-group list-group-flush flex-grow-1">
-                    <!-- 電台列表將由 JavaScript 動態生成 -->
+                    <!-- 電台列表由 JavaScript 產生 -->
                 </div>
-                
-                <!-- 版本資訊 - 置底 -->
-                <div class="version-info p-3 border-top border-secondary bg-dark text-center">
+
+                <div class="version-info p-3 border-top border-secondary bg-dark text-center mt-auto">
                     <div class="text-light" style="font-size: 0.75rem;">
-                        <div class="fw-semibold">芯禾電台 TV</div>
-                        <div style="opacity: 0.75;"><span id="vanillaVersion">v3.0.4</span> - <span id="vanillaYear"></span></div>
+                        <div class="fw-semibold" id="appTitle">芯禾電台</div>
+                        <div style="opacity: 0.75;"><span id="vanillaVersion">v3.1.0</span> - <span id="vanillaYear"></span></div>
                         <script>document.getElementById('vanillaYear').textContent = new Date().getFullYear();</script>
                     </div>
                 </div>
             </div>
 
-            <!-- 右側內容區 -->
-            <div class="col-md-9 bg-white order-2 order-md-2">
+            <div id="mainPanel" class="col-md-9 bg-white order-2">
                 <div id="playerContainer" class="p-4">
-                    <!-- 音頻播放器 -->
                     <audio id="audioPlayer" crossorigin="anonymous" preload="auto"></audio>
 
-                    <!-- 播放控制區 -->
                     <div class="card" id="controlCard">
                         <div class="card-header">
                             <h3 id="currentStationName" class="text-center">未選擇電台</h3>
                             <p id="radioLoadStatus" class="text-center mb-2" role="status" aria-live="polite" hidden></p>
-                            <button id="radioRetryButton" class="btn btn-primary" onclick="retryRadioPlayback()" hidden>重試播放</button>
+                            <button id="radioRetryButton" class="btn btn-primary" type="button" onclick="retryRadioPlayback()" hidden>重試播放</button>
                         </div>
-                        <div class="card-body">
-                            <!-- 音量控制 -->
-                            <div class="volume-control d-flex align-items-center gap-2">
-                                <button class="btn btn-outline-secondary volume-btn" id="volumeDownBtn">
+                        <div class="card-body" id="radioVolumeHost">
+                            <div class="volume-control d-flex align-items-center gap-2" id="volumeControl">
+                                <button class="btn btn-outline-secondary volume-btn" id="volumeDownBtn" type="button" title="降低音量">
                                     <i class="bi bi-chevron-left"></i>
                                 </button>
-                                <input type="range" class="form-range" id="volumeSlider" min="0" max="10" step="0.1" value="10">
-                                <button class="btn btn-outline-secondary volume-btn" id="volumeUpBtn">
+                                <input type="range" class="form-range" id="volumeSlider" min="0" max="10" step="0.1" value="10" title="音量">
+                                <button class="btn btn-outline-secondary volume-btn" id="volumeUpBtn" type="button" title="提高音量">
                                     <i class="bi bi-chevron-right"></i>
                                 </button>
                             </div>
                         </div>
                     </div>
 
-                    <!-- YouTube 播放器區域 -->
                     <div id="youtubeSection" style="display: none;">
                         <div class="card mb-4">
                             <div class="card-body">
                                 <div class="youtube-container">
                                     <div id="youtubePlayer"></div>
                                 </div>
+                                <div id="youtubeVolumeHost"></div>
                                 <div id="youtubeInitStatus" class="youtube-init-status" role="status" aria-live="polite" style="display: none;"></div>
-                                <!-- 播放控制按鈕 - 移到這裡 -->
-                                <div class="playback-controls d-flex justify-content-center gap-3 my-3">
-                                    <button class="btn btn-outline-primary" id="prevButton" disabled>
+                                <div class="playback-controls d-flex justify-content-center flex-wrap gap-2 my-3">
+                                    <button class="btn btn-outline-primary" id="prevButton" type="button" title="上一首" disabled>
                                         <i class="bi bi-skip-backward-fill"></i>
                                     </button>
-                                    <button class="btn btn-outline-primary" id="nextButton" disabled>
+                                    <button class="btn btn-outline-primary" id="playPauseButton" type="button" title="播放">
+                                        <i class="bi bi-play-fill"></i>
+                                    </button>
+                                    <button class="btn btn-outline-primary" id="nextButton" type="button" title="下一首" disabled>
                                         <i class="bi bi-skip-forward-fill"></i>
+                                    </button>
+                                    <button class="btn btn-outline-secondary" id="muteButton" type="button" title="靜音" aria-pressed="false">
+                                        <i class="bi bi-volume-up-fill"></i>
+                                    </button>
+                                    <button class="btn btn-outline-secondary" id="shuffleButton" type="button" title="隨機排序" disabled>
+                                        <i class="bi bi-shuffle"></i>
                                     </button>
                                 </div>
                                 <div class="playlist-controls">
-                                    <textarea class="form-control mb-2" id="youtubeUrlInput" rows="3" 
+                                    <textarea class="form-control mb-2" id="youtubeUrlInput" rows="3"
                                             placeholder="請輸入 YouTube 網址（每行一個）"></textarea>
                                     <div class="btn-group">
-                                        <button class="btn btn-primary" id="addToPlaylist">
+                                        <button class="btn btn-primary" id="addToPlaylist" type="button">
                                             <i class="bi bi-plus-lg"></i> 加入播放清單
                                         </button>
-                                        <button class="btn btn-danger" id="clearPlaylist">
+                                        <button class="btn btn-danger" id="clearPlaylist" type="button">
                                             <i class="bi bi-trash"></i> 清除播放清單
                                         </button>
                                     </div>
                                 </div>
                                 <div id="playlistContainer" class="mt-3">
-                                    <!-- 播放清單將由 JavaScript 動態生成 -->
+                                    <!-- 播放清單由 JavaScript 產生 -->
                                 </div>
                             </div>
                         </div>
@@ -112,11 +133,65 @@
         </div>
     </div>
 
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.20"></script>
+    <button type="button" id="chatToggle" class="pc-only chat-toggle btn btn-primary" title="開啟聊天室" aria-label="開啟聊天室">
+        <i class="bi bi-chat-dots-fill"></i>
+        <span id="chatUnread" class="badge bg-danger chat-unread" hidden>0</span>
+    </button>
+    <section id="chatPanel" class="pc-only chat-panel card" hidden>
+        <div class="card-header chat-header d-flex justify-content-between align-items-center">
+            <strong>聊天室</strong>
+            <div class="d-flex gap-2">
+                <button type="button" id="chatNameButton" class="btn btn-sm btn-light" title="設定名稱">名稱</button>
+                <button type="button" id="chatCloseButton" class="btn btn-sm btn-light" title="關閉">關閉</button>
+            </div>
+        </div>
+        <div id="chatMessages" class="chat-messages"></div>
+        <form id="chatForm" class="card-footer d-flex gap-2">
+            <input id="chatInput" class="form-control" type="text" maxlength="500" placeholder="輸入訊息..." autocomplete="off">
+            <button class="btn btn-primary" type="submit">送出</button>
+        </form>
+    </section>
+
+    <div id="playlistApp" class="pc-only playlist-app" hidden>
+        <div class="container py-4">
+            <div id="playlistManager"></div>
+            <div id="playlistDetail" hidden></div>
+        </div>
+    </div>
+
+    <div id="addToPlaylistModal" class="pc-only add-modal" hidden>
+        <div class="add-modal-backdrop" id="addToPlaylistBackdrop"></div>
+        <div class="add-modal-card card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>加入播放清單</strong>
+                <button type="button" id="closeAddModal" class="btn btn-sm btn-outline-secondary">取消</button>
+            </div>
+            <div class="card-body">
+                <p id="addModalSong" class="fw-semibold"></p>
+                <div id="addModalList"></div>
+                <button type="button" id="addModalManage" class="btn btn-link px-0">管理播放清單</button>
+            </div>
+        </div>
+    </div>
+    <div id="toastHost" class="toast-host pc-only"></div>
+
+    <script src="vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <!-- SOCKET_CLIENT -->
+    <script src="vendor/socket.io/socket.io.min.js"></script>
+    <!-- /SOCKET_CLIENT -->
+    <script src="vendor/hls.js/hls.min.js"></script>
+    <script>document.write('<script src="config.js?v=' + window.__assetVer + '"><\/script>');</script>
+    <script>document.write('<script src="playlist-order.js?v=' + window.__assetVer + '"><\/script>');</script>
+    <script>document.write('<script src="now-playing.js?v=' + window.__assetVer + '"><\/script>');</script>
     <script>document.write('<script src="stream-player.js?v=' + window.__assetVer + '"><\/script>');</script>
     <script>document.write('<script src="app.js?v=' + window.__assetVer + '"><\/script>');</script>
+    <script>
+        if (!window.isTv) {
+            document.write('<script src="pc-layout.js?v=' + window.__assetVer + '"><\/script>');
+            document.write('<script src="pc-theme.js?v=' + window.__assetVer + '"><\/script>');
+            document.write('<script src="pc-chat.js?v=' + window.__assetVer + '"><\/script>');
+            document.write('<script src="pc-playlists.js?v=' + window.__assetVer + '"><\/script>');
+        }
+    </script>
 </body>
 </html>

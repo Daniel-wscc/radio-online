@@ -1,4 +1,4 @@
-/* Standalone TV player. Keep this file compatible with classic scripts; no Angular dependency. */
+/* 電視與電腦共用的串流播放器。維持傳統 script，不依賴 Angular。 */
 (function (root) {
     'use strict';
 
@@ -42,7 +42,7 @@
             this.active.audio.volume = this.volume;
             this.active.audio.muted = this.volume === 0;
         }
-        // The candidate always stays silent until handoff, including during remote volume updates.
+        // 候選串流在交接前維持靜音，遠端音量更新也不會讓它出聲。
     };
 
     StreamPlayer.prototype.select = function (station) {
@@ -84,7 +84,7 @@
             }
         };
         entry.onWaiting = function () {
-            // Require a fresh continuous stretch of playback after any startup interruption.
+            // 啟動過程若被中斷，必須重新累積一段連續播放才算就緒。
             if (self.pending === entry) entry.startTime = audio.currentTime;
         };
         this.pending = entry;
@@ -116,7 +116,7 @@
 
     StreamPlayer.prototype.fail = function (entry, error) {
         if (entry !== this.pending && entry !== this.active) return;
-        // An error from A must not cancel or restart the candidate B.
+        // A 的錯誤不能取消或重開正在載入的 B。
         if (entry === this.active && (this.pending || this.retryAt || this.blocked)) return;
         if (entry === this.pending) {
             this.pending = null;
@@ -161,7 +161,7 @@
                 ahead = audio.buffered.end(i) - audio.currentTime;
             }
         }
-        // Reset the watchdog on actual progress, not merely a repeated browser event.
+        // 只有實際進度才重置看門狗，重複的瀏覽器事件不算。
         if (audio.currentTime > entry.lastTime + 0.05 || (entry === this.pending && end > entry.lastEnd + 0.05)) {
             entry.lastProgress = Date.now();
             entry.lastTime = audio.currentTime;
@@ -172,12 +172,12 @@
             return;
         }
         if (entry !== this.pending) return;
-        // Live streams do not consistently emit canplaythrough. Use their buffered duration instead.
+        // 直播串流不一定會送出 canplaythrough，改看緩衝長度。
         var opaqueReady = audio.buffered.length === 0 && audio.readyState >= 4;
         if (!entry.starting && audio.readyState >= 3 && (ahead >= 2 || opaqueReady)) {
             this.startSilent(entry);
         }
-        // Confirm decoded playback is advancing while silent before interrupting the old station.
+        // 先確認靜音播放真的在前進，再切斷舊電台。
         if (entry.started && !audio.paused && audio.currentTime - entry.startTime >= 1 &&
             audio.readyState >= 3 && (ahead >= 1 || opaqueReady)) {
             var previous = this.active;
@@ -195,7 +195,7 @@
     StreamPlayer.prototype.retry = function () {
         var self = this;
         if (!this.target) return;
-        // Called directly by a user gesture, so the TV can grant audible playback permission.
+        // 由使用者操作直接呼叫，電視才會允許出聲播放。
         if (this.active && this.active.station.url === this.target.url && this.blocked) {
             var entry = this.active;
             this.blocked = false;

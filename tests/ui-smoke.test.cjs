@@ -246,7 +246,7 @@ test('桌面與 webOS 使用者代理都能開啟頁面，且電視隱藏電腦�
     const desktop = await openScenario('/', DESKTOP_UA, 1280, 720);
     assert.equal(desktop.isTv, false);
     assert.equal(desktop.title, '芯禾電台');
-    assert.equal(desktop.version, 'v3.1.1');
+    assert.equal(desktop.version, 'v3.1.2');
     assert.equal(desktop.nowPlayingCount, 4);
     assert.equal(desktop.nowText, 'NOW PLAYING TEST SONG TITLE THAT IS LONG ENOUGH');
     assert.equal(desktop.marquee, true);
@@ -255,10 +255,10 @@ test('桌面與 webOS 使用者代理都能開啟頁面，且電視隱藏電腦�
     assert.equal(desktop.shuffle, true);
     assert.notEqual(desktop.theme, 'none');
     assert.equal(desktop.themeToggle, 'none');
-    assert.notEqual(desktop.playlists, 'none');
-    assert.notEqual(desktop.chat, 'none');
+    assert.equal(desktop.playlists, 'none');
+    assert.equal(desktop.chat, 'none');
     assert.equal(desktop.menu, 'none');
-    assert.equal(desktop.resources.some(name => name.indexOf('pc-chat.js') !== -1), true);
+    assert.equal(desktop.resources.some(name => name.indexOf('pc-chat.js') !== -1), false);
     assert.equal(desktop.resources.some(name => name.indexOf('pc-playlists.js') !== -1), true);
     assert.equal(desktop.resources.some(name => name.indexOf('pc-theme.js') !== -1), true);
     assert.equal(desktop.resources.some(name => name.indexOf('pc-layout.js') !== -1), true);
@@ -267,7 +267,7 @@ test('桌面與 webOS 使用者代理都能開啟頁面，且電視隱藏電腦�
     const phone = await openScenario('/', DESKTOP_UA, 390, 800);
     assert.equal(phone.isTv, false);
     assert.notEqual(phone.menu, 'none');
-    assert.notEqual(phone.chat, 'none');
+    assert.equal(phone.chat, 'none');
     const drawer = await page.send('Runtime.evaluate', {
         expression: `(function () {
             document.getElementById('mobileMenuButton').click();
@@ -305,8 +305,10 @@ test('桌面與 webOS 使用者代理都能開啟頁面，且電視隱藏電腦�
 
     const forcedPc = await openScenario('/?tv=0', WEBOS_UA, 1280, 720);
     assert.equal(forcedPc.isTv, false);
-    assert.notEqual(forcedPc.chat, 'none');
-    assert.equal(forcedPc.resources.some(name => name.indexOf('pc-chat.js') !== -1), true);
+    assert.equal(forcedPc.chat, 'none');
+    assert.equal(forcedPc.playlists, 'none');
+    assert.equal(forcedPc.resources.some(name => name.indexOf('pc-chat.js') !== -1), false);
+    assert.equal(forcedPc.resources.some(name => name.indexOf('pc-playlists.js') !== -1), true);
 
     browser.close();
     page.close();

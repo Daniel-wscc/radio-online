@@ -10,6 +10,14 @@
     <link rel="icon" href="data:,">
     <script>window.__assetVer = Date.now();</script>
     <script>document.write('<script src="platform.js?v=' + window.__assetVer + '"><\/script>');</script>
+    <script>document.write('<script src="config.js?v=' + window.__assetVer + '"><\/script>');</script>
+    <script>
+        (function () {
+            var features = (window.RADIO_CONFIG && window.RADIO_CONFIG.features) || {};
+            if (!features.chat) document.documentElement.classList.add('feature-chat-off');
+            if (!features.savedPlaylists) document.documentElement.classList.add('feature-playlists-off');
+        })();
+    </script>
     <script>document.write(
         '<link rel="stylesheet" href="vendor/bootstrap-icons/bootstrap-icons.css?v=' + window.__assetVer + '">' +
         '<link rel="stylesheet" href="styles.css?v=' + window.__assetVer + '">'
@@ -38,7 +46,7 @@
         </div>
         <div class="version-info">
             <div class="version-name" id="appTitle">芯禾電台</div>
-            <div class="version-meta"><span id="vanillaVersion">v3.1.1</span> - <span id="vanillaYear"></span></div>
+            <div class="version-meta"><span id="vanillaVersion">v3.1.2</span> - <span id="vanillaYear"></span></div>
             <script>document.getElementById('vanillaYear').textContent = new Date().getFullYear();</script>
         </div>
     </aside>
@@ -215,16 +223,16 @@
     <script src="vendor/socket.io/socket.io.min.js"></script>
     <!-- /SOCKET_CLIENT -->
     <script src="vendor/hls.js/hls.min.js"></script>
-    <script>document.write('<script src="config.js?v=' + window.__assetVer + '"><\/script>');</script>
     <script>document.write('<script src="playlist-order.js?v=' + window.__assetVer + '"><\/script>');</script>
     <script>document.write('<script src="now-playing.js?v=' + window.__assetVer + '"><\/script>');</script>
     <script>document.write('<script src="stream-player.js?v=' + window.__assetVer + '"><\/script>');</script>
     <script>document.write('<script src="app.js?v=' + window.__assetVer + '"><\/script>');</script>
     <script>
         if (!window.isTv) {
+            var features = (window.RADIO_CONFIG && window.RADIO_CONFIG.features) || {};
             document.write('<script src="pc-layout.js?v=' + window.__assetVer + '"><\/script>');
             document.write('<script src="pc-theme.js?v=' + window.__assetVer + '"><\/script>');
-            document.write('<script src="pc-chat.js?v=' + window.__assetVer + '"><\/script>');
+            if (features.chat) document.write('<script src="pc-chat.js?v=' + window.__assetVer + '"><\/script>');
             document.write('<script src="pc-playlists.js?v=' + window.__assetVer + '"><\/script>');
         }
     </script>

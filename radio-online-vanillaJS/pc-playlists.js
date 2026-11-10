@@ -3,6 +3,7 @@
     'use strict';
     if (window.isTv) return;
 
+    var savedPlaylistsOn = !!(window.RADIO_CONFIG && window.RADIO_CONFIG.features && window.RADIO_CONFIG.features.savedPlaylists);
     var app = document.getElementById('playlistApp');
     var managerView = document.getElementById('playlistManager');
     var detailView = document.getElementById('playlistDetail');
@@ -69,7 +70,7 @@
     }
 
     function openApp() {
-        if (!app) return;
+        if (!savedPlaylistsOn || !app) return;
         app.hidden = false;
         loading = true;
         showManager();
@@ -358,7 +359,7 @@
             if (app && !app.hidden && managerView && !managerView.hidden) renderManager();
             if (modal && !modal.hidden) renderAddModal();
         });
-        socket.on('playlistCreated', function (result) {
+        if (savedPlaylistsOn) socket.on('playlistCreated', function (result) {
             if (result && result.success && result.playlist) {
                 playlists.unshift(result.playlist);
                 showToast('已建立播放清單', 'success');
@@ -367,7 +368,7 @@
                 showToast('建立播放清單失敗：' + ((result && result.error) || ''), 'error');
             }
         });
-        socket.on('playlistDeleted', function (result) {
+        if (savedPlaylistsOn) socket.on('playlistDeleted', function (result) {
             if (result && result.success) {
                 playlists = playlists.filter(function (item) {
                     return Number(item.id) !== Number(result.playlistId);
@@ -378,7 +379,7 @@
                 showToast('刪除播放清單失敗：' + ((result && result.error) || ''), 'error');
             }
         });
-        socket.on('playlistDetailLoaded', function (data) {
+        if (savedPlaylistsOn) socket.on('playlistDetailLoaded', function (data) {
             loading = false;
             if (!data || data.error) {
                 showToast('載入播放清單失敗：' + ((data && data.error) || ''), 'error');
@@ -417,7 +418,7 @@
                 showToast('加入播放清單失敗：' + ((result && result.error) || ''), 'error');
             }
         });
-        socket.on('songRemovedFromPlaylist', function (result) {
+        if (savedPlaylistsOn) socket.on('songRemovedFromPlaylist', function (result) {
             if (result && result.success) {
                 detailItems = detailItems.filter(function (item) {
                     return Number(item.id) !== Number(result.itemId);
@@ -427,7 +428,7 @@
                 showToast('移除歌曲失敗：' + ((result && result.error) || ''), 'error');
             }
         });
-        socket.on('playlistAdded', function (result) {
+        if (savedPlaylistsOn) socket.on('playlistAdded', function (result) {
             if (result && result.success) showToast(result.message || '已加入播放佇列', 'success');
             else if (result && result.error) showToast(result.error, 'error');
         });

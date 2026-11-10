@@ -2,6 +2,7 @@
 (function () {
     'use strict';
     if (window.isTv) return;
+    if (!window.RADIO_CONFIG || !window.RADIO_CONFIG.features || !window.RADIO_CONFIG.features.chat) return;
 
     var panel = document.getElementById('chatPanel');
     var toggle = document.getElementById('chatToggle');

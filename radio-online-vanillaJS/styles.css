@@ -683,6 +683,11 @@ img { max-width: 100%; }
 
 .mobile-station-toggle, .mobile-sidebar-backdrop { display: none; }
 html.is-tv .pc-only { display: none !important; }
+html.feature-chat-off #chatToggle,
+html.feature-chat-off #chatPanel,
+html.feature-playlists-off #openPlaylistsButton,
+html.feature-playlists-off .playlist-entry,
+html.feature-playlists-off #addModalManage { display: none !important; }
 html:not(.is-tv) #themeToggle { display: none !important; }
 
 .chat-toggle {

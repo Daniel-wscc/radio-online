@@ -24,7 +24,21 @@ test('頁面版本與 package.json 一致', () => {
     const match = read('index.html').match(/id="vanillaVersion">v([^<]+)</);
     assert.ok(match, '找不到版本標籤');
     assert.equal(match[1], pkg.version);
-    assert.equal(pkg.version, '3.1.1');
+    assert.equal(pkg.version, '3.1.2');
+});
+
+test('聊天室與播放清單管理預設關閉', () => {
+    const sandbox = load('config.js', { location: { pathname: '/radio-online/' } });
+    assert.equal(sandbox.RADIO_CONFIG.features.chat, false);
+    assert.equal(sandbox.RADIO_CONFIG.features.savedPlaylists, false);
+    const html = read('index.html');
+    assert.match(html, /feature-chat-off/);
+    assert.match(html, /feature-playlists-off/);
+    assert.match(html, /if \(features\.chat\)/);
+    const playlists = read('pc-playlists.js');
+    assert.match(playlists, /if \(savedPlaylistsOn\) socket\.on\('playlistCreated'/);
+    assert.match(playlists, /socket\.on\('playlistsLoaded'/);
+    assert.match(playlists, /socket\.on\('songAddedToPlaylist'/);
 });
 
 test('頁面不再引用外部 CDN', () => {

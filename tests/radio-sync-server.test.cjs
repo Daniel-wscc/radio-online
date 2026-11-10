@@ -139,6 +139,54 @@ test('音量指令不會清掉電台，重開資料庫仍保留音量、電台�
     assert.equal(partial.youtubeState.currentIndex, 0);
 });
 
+test('大型佇列下連續調小音量仍很快，兩邊都停在 0，而且不會重寫播放清單', async () => {
+    const { db } = tempDb();
+    const store = createRadioStore(db);
+    const items = [];
+    for (let i = 0; i < 300; i++) {
+        items.push({ videoId: 'v' + String(10000000 + i), title: '曲' + i });
+    }
+    assert.equal(store.apply('queueAddMany', { items }).ok, true);
+    const playlistWrites = store.playlistWrites();
+    const live = await listen(store);
+    const a = await connect(live.port);
+    const b = await connect(live.port);
+    await until(() => a.states.length && b.states.length, '初始狀態');
+    try {
+        const durations = [];
+        let intent = 0.8;
+        for (let step = 0; step < 20; step++) {
+            intent = Math.round((0.8 - (step + 1) * 0.04) * 1000) / 1000;
+            const started = process.hrtime.bigint();
+            const applied = store.apply('setVolume', { volume: intent, clientId: 'A', opId: step + 1 });
+            durations.push(Number(process.hrtime.bigint() - started) / 1e6);
+            assert.equal(applied.ok, true);
+            a.socket.emit('setVolume', { volume: intent, clientId: 'A', opId: step + 1 });
+        }
+        assert.ok(Math.max.apply(null, durations) < 25, '單次音量處理過慢：' + Math.max.apply(null, durations));
+        assert.equal(store.playlistWrites(), playlistWrites);
+        assert.equal(store.getState().volume, 0);
+        assert.equal(store.getState().volumeOrigin.clientId, 'A');
+        assert.equal(store.getState().volumeOrigin.opId, 20);
+        await until(() => {
+            const left = a.states[a.states.length - 1];
+            const right = b.states[b.states.length - 1];
+            return left && right && left.volume === 0 && right.volume === 0 && left.revision === right.revision;
+        }, '音量歸零');
+        store.flush();
+        const again = createRadioStore(new Database(db.name));
+        assert.equal(again.getState().volume, 0);
+        assert.equal(again.getState().youtubeState.playlist.length, 300);
+    } finally {
+        a.socket.close();
+        b.socket.close();
+        live.io.close();
+        live.server.close();
+        store.flush();
+        db.close();
+    }
+});
+
 test('空佇列仍可進入 YouTube，無效匯入行會被跳過且順序不變', () => {
     const { db } = tempDb();
     const store = createRadioStore(db);

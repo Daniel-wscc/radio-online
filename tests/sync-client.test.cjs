@@ -34,6 +34,61 @@ test('匯入保持輸入順序，無效行不會擋下其他網址', () => {
     assert.deepEqual(indexes, [0, 2, 4]);
 });
 
+test('連續調小音量時，自己較舊的回聲不會把音量拉高', () => {
+    const clientId = 'A';
+    let local = 0.8;
+    let deferred = null;
+    const echoes = [];
+    for (let step = 0; step < 20; step++) {
+        local = Math.round((0.8 - (step + 1) * 0.04) * 1000) / 1000;
+        echoes.push({ volume: local, opId: step + 1 });
+    }
+    assert.equal(local, 0);
+    let applied = local;
+    for (const echo of echoes) {
+        const decision = api.decideVolumeSync({
+            incomingVolume: echo.volume,
+            origin: { clientId: clientId, opId: echo.opId },
+            clientId: clientId,
+            latestLocalOpId: 20,
+            interacting: false,
+            withinSettle: true,
+            deferredVolume: deferred
+        });
+        if (decision.applyNow) {
+            assert.ok(decision.volume <= local, '本機音量不應被較舊回聲拉高');
+            applied = decision.volume;
+        } else if (!decision.ignore && decision.deferredVolume != null) {
+            deferred = decision.deferredVolume;
+        }
+    }
+    assert.equal(applied, 0);
+    const foreign = api.decideVolumeSync({
+        incomingVolume: 0.9,
+        origin: { clientId: 'B', opId: 1 },
+        clientId: clientId,
+        latestLocalOpId: 20,
+        interacting: true,
+        withinSettle: true,
+        deferredVolume: null
+    });
+    assert.equal(foreign.applyNow, false);
+    assert.equal(foreign.deferredVolume, 0.9);
+    const settled = api.decideVolumeSync({
+        incomingVolume: 0.9,
+        origin: { clientId: 'B', opId: 1 },
+        clientId: clientId,
+        latestLocalOpId: 20,
+        interacting: false,
+        withinSettle: false,
+        deferredVolume: 0.9
+    });
+    assert.equal(settled.applyNow, true);
+    assert.equal(settled.volume, 0.9);
+    assert.equal(api.isOwnStaleEcho({ clientId: 'A', opId: 4 }, 'A', 20), true);
+    assert.equal(api.isOwnStaleEcho({ clientId: 'B', opId: 1 }, 'A', 20), false);
+});
+
 test('較舊的版號要捨棄，拖曳中的音量先暫存、放開後再套用', () => {
     assert.equal(api.isStaleRevision(5, 4), true);
     assert.equal(api.isStaleRevision(5, 5), false);

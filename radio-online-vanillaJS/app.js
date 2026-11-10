@@ -286,6 +286,14 @@ var volumeSyncLockUntil = 0;
 var volumeDragging = false;
 var deferredServerVolume = null;
 var appliedRevision = -1;
+var syncSession = window.RadioSyncClient && typeof RadioSyncClient.createSession === 'function'
+    ? RadioSyncClient.createSession()
+    : { clientId: 'local', opId: 0, volumeOpId: 0, stationOpId: 0 };
+var volumeSendTimer = null;
+var volumeLastSentAt = 0;
+var volumeSettleUntil = 0;
+var VOLUME_THROTTLE_MS = 150;
+var VOLUME_SETTLE_MS = 800;
 
 function getPlaylistVideoId(items, index) {
     return items && index >= 0 && items[index] ? items[index].id : null;
@@ -326,8 +334,12 @@ function preserveVolumeForSourceSwitch() {
     return volume;
 }
 
+function volumeHolding() {
+    return !!volumeDragging || Date.now() < volumeSettleUntil;
+}
+
 function flushDeferredVolume() {
-    if (volumeDragging || deferredServerVolume == null || Date.now() < volumeSyncLockUntil) return;
+    if (volumeHolding() || deferredServerVolume == null) return;
     var volume = deferredServerVolume;
     deferredServerVolume = null;
     rememberVolume(volume);
@@ -336,11 +348,50 @@ function flushDeferredVolume() {
     if (typeof updateMuteButton === 'function') updateMuteButton();
 }
 
+function markVolumeActivity() {
+    volumeSettleUntil = Date.now() + VOLUME_SETTLE_MS;
+}
+
+function emitVolumeCommand() {
+    volumeLastSentAt = Date.now();
+    markVolumeActivity();
+    if (!socket) return;
+    var payload = { volume: getSavedVolume() };
+    if (window.RadioSyncClient && typeof RadioSyncClient.issueOp === 'function') {
+        var op = RadioSyncClient.issueOp(syncSession, 'volume');
+        payload.clientId = op.clientId;
+        payload.opId = op.opId;
+    }
+    socket.emit('setVolume', payload);
+}
+
+function scheduleVolumeSend() {
+    markVolumeActivity();
+    var elapsed = Date.now() - volumeLastSentAt;
+    if (elapsed >= VOLUME_THROTTLE_MS) {
+        if (volumeSendTimer) {
+            clearTimeout(volumeSendTimer);
+            volumeSendTimer = null;
+        }
+        emitVolumeCommand();
+        return;
+    }
+    if (!volumeSendTimer) {
+        volumeSendTimer = setTimeout(function () {
+            volumeSendTimer = null;
+            emitVolumeCommand();
+        }, VOLUME_THROTTLE_MS - elapsed);
+    }
+}
+
 function endVolumeDrag() {
     if (!volumeDragging) return;
     volumeDragging = false;
-    if (socket) socket.emit('setVolume', { volume: getSavedVolume() });
-    deferredServerVolume = null;
+    if (volumeSendTimer) {
+        clearTimeout(volumeSendTimer);
+        volumeSendTimer = null;
+    }
+    emitVolumeCommand();
 }
 
 // 初始化
@@ -439,13 +490,7 @@ function setupEventListeners() {
         e.target.style.setProperty('--value', (e.target.value * 10) + '%');
         updateMuteButton();
 
-        // 使用防抖機制發送音量更新到伺服器
-        if (volumeDebounceTimer) {
-            clearTimeout(volumeDebounceTimer);
-        }
-        volumeDebounceTimer = setTimeout(function () {
-            if (socket) socket.emit('setVolume', { volume: getSavedVolume() });
-        }, volumeDebounceDelay);
+        scheduleVolumeSend();
     });
     volumeSlider.addEventListener('pointerdown', function () { volumeDragging = true; });
     volumeSlider.addEventListener('pointerup', endVolumeDrag);
@@ -580,7 +625,13 @@ function playStation(station) {
 function updateRadioState() {
     // 只送目前這次的意圖。音量與佇列走各自的指令，避免把過期的整包狀態蓋回去。
     if (!socket || !currentStation || isYoutubeMode) return;
-    socket.emit('setStation', { station: currentStation });
+    var payload = { station: currentStation };
+    if (window.RadioSyncClient && typeof RadioSyncClient.issueOp === 'function') {
+        var op = RadioSyncClient.issueOp(syncSession, 'station');
+        payload.clientId = op.clientId;
+        payload.opId = op.opId;
+    }
+    socket.emit('setStation', payload);
 }
 
 // 新增：只同步播放清單，不觸發播放狀態更新
@@ -653,12 +704,30 @@ function handleStateUpdate(state) {
             Math.abs(incomingVolume - getSavedVolume()) > 0.001;
 
         var draggingNow = typeof volumeDragging !== 'undefined' && volumeDragging;
-        var volumeDecision = syncApi
-            ? syncApi.reconcileVolume(draggingNow, deferredServerVolume, incomingVolume)
-            : { applyNow: !draggingNow, deferredVolume: draggingNow ? incomingVolume : null, volume: incomingVolume };
+        var settlingNow = typeof volumeSettleUntil === 'number' && Date.now() < volumeSettleUntil;
+        var session = typeof syncSession !== 'undefined' ? syncSession : null;
+        var volumeDecision;
+        if (syncApi && typeof syncApi.decideVolumeSync === 'function' && session) {
+            volumeDecision = syncApi.decideVolumeSync({
+                incomingVolume: incomingVolume,
+                origin: state.volumeOrigin || null,
+                clientId: session.clientId,
+                latestLocalOpId: session.volumeOpId,
+                interacting: draggingNow,
+                withinSettle: settlingNow,
+                deferredVolume: deferredServerVolume
+            });
+        } else if (syncApi && typeof syncApi.reconcileVolume === 'function') {
+            volumeDecision = syncApi.reconcileVolume(draggingNow, deferredServerVolume, incomingVolume);
+        } else {
+            volumeDecision = { applyNow: !draggingNow, deferredVolume: draggingNow ? incomingVolume : null, volume: incomingVolume };
+        }
         if (!volumeDecision.applyNow) {
             deferredServerVolume = volumeDecision.deferredVolume;
-            console.log('拖曳音量中，先記住伺服器音量:', incomingVolume);
+            if (!volumeDecision.ignore && deferredServerVolume != null) {
+                setTimeout(flushDeferredVolume, VOLUME_SETTLE_MS);
+            }
+            console.log('音量先不覆蓋本機:', incomingVolume);
         } else if (shouldKeepLocalVolume && typeof state.revision !== 'number') {
             deferredServerVolume = incomingVolume;
             console.log('切換來源期間保留本機音量:', getSavedVolume());
@@ -877,7 +946,13 @@ function handleStateUpdate(state) {
 
         // 檢查是否真的需要切換電台或從 YouTube 模式切換回電台
         // 只有在電台真的不同或需要模式切換時才中斷播放
-        var needStationSwitch = !currentStation || currentStation.id !== state.currentStation.id;
+        var staleOwnStation = window.RadioSyncClient && typeof RadioSyncClient.isOwnStaleEcho === 'function' &&
+            typeof syncSession !== 'undefined' &&
+            RadioSyncClient.isOwnStaleEcho(state.stationOrigin, syncSession.clientId, syncSession.stationOpId);
+        var needStationSwitch = !staleOwnStation && (!currentStation || currentStation.id !== state.currentStation.id);
+        if (staleOwnStation) {
+            console.log('忽略自己較舊的切台回聲');
+        }
 
         if (needStationSwitch || needModeSwitch) {
             console.log('需要切換電台或模式:', {
@@ -891,21 +966,23 @@ function handleStateUpdate(state) {
             currentStationName.textContent = state.currentStation.name;
             if (state.isPlaying !== false) startRadioTransition(state.currentStation);
             else stopRadioPlayback();
-        } else {
+        } else if (!staleOwnStation) {
             // 如果不需要切換電台，只更新電台資訊但不中斷播放
             console.log('只更新電台資訊，不中斷播放');
             currentStation = state.currentStation;
             currentStationName.textContent = state.currentStation.name;
         }
 
-        // 更新電台列表選中狀態
-        var allStations = document.querySelectorAll('.station-item');
-        allStations.forEach(function (item) {
-            item.classList.remove('active');
-            if (item.dataset.stationId === state.currentStation.id) {
-                item.classList.add('active');
-            }
-        });
+        if (!staleOwnStation) {
+            // 更新電台列表選中狀態
+            var allStations = document.querySelectorAll('.station-item');
+            allStations.forEach(function (item) {
+                item.classList.remove('active');
+                if (item.dataset.stationId === state.currentStation.id) {
+                    item.classList.add('active');
+                }
+            });
+        }
 
     }
 }
@@ -1411,10 +1488,7 @@ function toggleMute() {
     if (isYoutubeMode) syncYoutubeVolume();
     else applyAudioVolume(getSavedVolume());
     updateMuteButton();
-    if (volumeDebounceTimer) clearTimeout(volumeDebounceTimer);
-    volumeDebounceTimer = setTimeout(function () {
-        if (socket) socket.emit('setVolume', { volume: getSavedVolume() });
-    }, volumeDebounceDelay);
+    scheduleVolumeSend();
 }
 
 function updateMuteButton() {

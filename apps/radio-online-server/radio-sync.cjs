@@ -228,7 +228,30 @@ function applyCommand(state, name, payload, ids) {
 
     if (!changed) return { ok: false, error: '沒有變更' };
     next.revision = state.revision + 1;
+    stampOrigin(next, name, body);
     return { ok: true, state: next };
+}
+
+function stampOrigin(next, name, body) {
+    var field = name === 'setVolume' ? 'volume' : (name === 'setStation' ? 'station' : '');
+    if (!field) {
+        next.lastOp = { field: name, clientId: null, opId: null };
+        return;
+    }
+    var origin = {
+        clientId: body && body.clientId ? String(body.clientId) : null,
+        opId: body && typeof body.opId === 'number' && isFinite(body.opId) ? body.opId : null
+    };
+    if (field === 'volume') next.volumeOrigin = origin;
+    if (field === 'station') next.stationOrigin = origin;
+    next.lastOp = { field: field, clientId: origin.clientId, opId: origin.opId };
+}
+
+function partsForCommand(name) {
+    if (name === 'setVolume') return { volume: true };
+    if (name === 'setStation' || name === 'setMode') return { room: true, youtube: true };
+    if (name === 'playIndex') return { room: true, youtube: true };
+    return { room: true, youtube: true, playlist: true };
 }
 
 function columnExists(db, table, column) {
@@ -315,27 +338,39 @@ function loadState(db, ids) {
     return state;
 }
 
-function persistState(db, state) {
+function persistParts(db, state, parts, counts) {
     var now = Date.now();
-    db.prepare(`UPDATE radio_room
-      SET volume = ?, stationJson = ?, isPlaying = ?, revision = ?, updatedAt = ?
-      WHERE id = 1`).run(
-        state.volume,
-        state.currentStation ? JSON.stringify(state.currentStation) : null,
-        state.isPlaying ? 1 : 0,
-        state.revision,
-        now
-    );
-    var index = state.youtubeState.currentIndex;
-    if (typeof index !== 'number' || !isFinite(index)) index = -1;
-    db.prepare(`UPDATE youtube_state
-      SET currentIndex = ?, currentVideoId = ?, isYoutubeMode = ?, updatedAt = ?
-      WHERE id = 1`).run(
-        index,
-        state.youtubeState.currentVideoId || null,
-        state.youtubeState.isYoutubeMode ? 1 : 0,
-        now
-    );
+    if (parts.volume && !parts.room) {
+        db.prepare('UPDATE radio_room SET volume = ?, revision = ?, updatedAt = ? WHERE id = 1')
+            .run(state.volume, state.revision, now);
+    } else if (parts.room || parts.volume) {
+        db.prepare(`UPDATE radio_room
+          SET volume = ?, stationJson = ?, isPlaying = ?, revision = ?, updatedAt = ?
+          WHERE id = 1`).run(
+            state.volume,
+            state.currentStation ? JSON.stringify(state.currentStation) : null,
+            state.isPlaying ? 1 : 0,
+            state.revision,
+            now
+        );
+    } else {
+        db.prepare('UPDATE radio_room SET revision = ?, updatedAt = ? WHERE id = 1')
+            .run(state.revision, now);
+    }
+    if (parts.youtube) {
+        var index = state.youtubeState.currentIndex;
+        if (typeof index !== 'number' || !isFinite(index)) index = -1;
+        db.prepare(`UPDATE youtube_state
+          SET currentIndex = ?, currentVideoId = ?, isYoutubeMode = ?, updatedAt = ?
+          WHERE id = 1`).run(
+            index,
+            state.youtubeState.currentVideoId || null,
+            state.youtubeState.isYoutubeMode ? 1 : 0,
+            now
+        );
+    }
+    if (!parts.playlist) return;
+    if (counts) counts.playlist += 1;
     var write = db.transaction(function () {
         db.prepare('DELETE FROM playlist').run();
         var insert = db.prepare('INSERT INTO playlist (videoId, title, addedAt, itemId, sortOrder) VALUES (?, ?, ?, ?, ?)');
@@ -351,18 +386,44 @@ function persistState(db, state) {
 function createRadioStore(db) {
     var ids = { seq: 0 };
     var state = loadState(db, ids);
-    persistState(db, state);
+    var counts = { playlist: 0 };
+    var volumeTimer = null;
+    var volumePending = false;
+    function writeVolumeNow() {
+        volumePending = false;
+        if (volumeTimer) {
+            clearTimeout(volumeTimer);
+            volumeTimer = null;
+        }
+        if (!db.open) return;
+        persistParts(db, state, { volume: true }, counts);
+    }
+    function scheduleVolume() {
+        volumePending = true;
+        if (volumeTimer) return;
+        volumeTimer = setTimeout(writeVolumeNow, 200);
+        if (volumeTimer.unref) volumeTimer.unref();
+    }
+    persistParts(db, state, { room: true, youtube: true, playlist: true }, counts);
     var online = 0;
     return {
         getState: function () { return cloneState(state); },
         onlineUsers: function () { return online; },
         addUser: function () { online += 1; return online; },
         removeUser: function () { online = Math.max(0, online - 1); return online; },
+        playlistWrites: function () { return counts.playlist; },
+        flush: function () { if (volumePending) writeVolumeNow(); },
         apply: function (name, payload) {
             var result = applyCommand(state, name, payload, ids);
             if (!result.ok) return result;
             state = result.state;
-            persistState(db, state);
+            var parts = partsForCommand(name);
+            if (parts.volume && !parts.room && !parts.youtube && !parts.playlist) {
+                scheduleVolume();
+            } else {
+                if (volumePending) writeVolumeNow();
+                persistParts(db, state, parts, counts);
+            }
             return { ok: true, state: cloneState(state) };
         }
     };

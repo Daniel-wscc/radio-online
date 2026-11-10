@@ -24,14 +24,13 @@ test('頁面版本與 package.json 一致', () => {
     const match = read('index.html').match(/id="vanillaVersion">v([^<]+)</);
     assert.ok(match, '找不到版本標籤');
     assert.equal(match[1], pkg.version);
-    assert.equal(pkg.version, '3.1.0');
+    assert.equal(pkg.version, '3.1.1');
 });
 
 test('頁面不再引用外部 CDN', () => {
     const html = read('index.html');
     assert.doesNotMatch(html, /cdn\.jsdelivr|cdn\.socket\.io|unpkg\.com|googleapis\.com/);
-    assert.match(html, /vendor\/bootstrap\/css\/bootstrap\.min\.css/);
-    assert.match(html, /vendor\/bootstrap\/js\/bootstrap\.bundle\.min\.js/);
+    assert.doesNotMatch(html, /bootstrap\.min\.css|bootstrap\.bundle\.min\.js/);
     assert.match(html, /vendor\/bootstrap-icons\/bootstrap-icons\.css/);
     assert.match(html, /vendor\/socket\.io\/socket\.io\.min\.js/);
     assert.match(html, /vendor\/hls\.js\/hls\.min\.js/);

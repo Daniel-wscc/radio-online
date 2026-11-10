@@ -57,8 +57,16 @@
             button.className = 'dropdown-item';
             button.setAttribute('data-theme-id', theme.id);
             button.textContent = theme.label;
+            var swatch = document.createElement('span');
+            swatch.className = 'swatch';
+            swatch.setAttribute('data-theme', theme.id);
+            swatch.innerHTML = '<i></i><i></i><i></i><i></i>';
+            button.appendChild(swatch);
+            button.appendChild(document.createTextNode(theme.label));
             button.addEventListener('click', function () {
                 applyThemeById(theme.id);
+                var switcher = document.getElementById('themeSwitcher');
+                if (switcher) switcher.classList.remove('is-open');
             });
             item.appendChild(button);
             menu.appendChild(item);
@@ -68,6 +76,18 @@
     document.addEventListener('DOMContentLoaded', function () {
         buildMenu();
         applyThemeById(readSaved());
+        var switcher = document.getElementById('themeSwitcher');
+        var trigger = document.getElementById('themeTrigger');
+        if (trigger && switcher) {
+            trigger.addEventListener('click', function (event) {
+                event.stopPropagation();
+                var open = switcher.classList.toggle('is-open');
+                trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+            });
+            document.addEventListener('click', function (event) {
+                if (!switcher.contains(event.target)) switcher.classList.remove('is-open');
+            });
+        }
     });
 
     window.PcTheme = { apply: applyThemeById, themes: THEMES };

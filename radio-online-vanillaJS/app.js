@@ -162,11 +162,59 @@ function restorePlaybackSnapshot(snapshot) {
 var wasFullscreen = false;
 
 // 共用：確保 YouTube 播放器音量與滑桿一致
+var playerExpanded = false;
+
+function placeNode(nodeId, hostId) {
+    var node = document.getElementById(nodeId);
+    var host = document.getElementById(hostId);
+    if (!node || !host || node.parentNode === host) return;
+    host.appendChild(node);
+}
+
+function updateMiniTitle() {
+    var text = '請添加影片到播放清單';
+    if (playlist.length && currentVideoIndex >= 0 && playlist[currentVideoIndex]) {
+        text = playlist[currentVideoIndex].title || playlist[currentVideoIndex].id;
+    } else if (playlist.length) {
+        text = '請選擇要播放的影片';
+    }
+    var mini = document.getElementById('miniPlayerTitle');
+    var expanded = document.getElementById('expandedVideoTitle');
+    if (mini) mini.textContent = text;
+    if (expanded) expanded.textContent = text;
+}
+
+function syncYoutubeChrome() {
+    if (!isYoutubeMode || playlist.length === 0) playerExpanded = false;
+    var expanded = playerExpanded && isYoutubeMode;
+    var section = document.getElementById('youtubeSection');
+    var bar = document.getElementById('playerBar');
+    var stage = document.getElementById('radioStage');
+    if (section) {
+        section.classList.toggle('has-queue', isYoutubeMode && playlist.length > 0);
+        section.classList.toggle('is-expanded', expanded);
+    }
+    if (bar) bar.hidden = !(isYoutubeMode && playlist.length > 0) || expanded;
+    if (stage) stage.style.display = isYoutubeMode ? 'none' : '';
+    var frameHost = 'ytStage';
+    if (expanded) frameHost = 'videoTarget';
+    else if (isYoutubeMode && playlist.length > 0) frameHost = 'miniThumbSlot';
+    placeNode('ytFrame', frameHost);
+    placeNode('playbackControls', expanded ? 'expandedControlsHost' : 'miniControlsHost');
+    placeNode('playlistContainer', expanded ? 'expandedQueueHost' : 'queueHost');
+    updateMiniTitle();
+}
+
+function setPlayerExpanded(open) {
+    playerExpanded = !!open && isYoutubeMode && playlist.length > 0;
+    syncYoutubeChrome();
+}
+
 function placeVolumeControl() {
     var control = document.getElementById('volumeControl');
     var host = document.getElementById(isYoutubeMode ? 'youtubeVolumeHost' : 'radioVolumeHost');
-    if (!control || !host || control.parentNode === host) return;
-    host.appendChild(control);
+    if (control && host && control.parentNode !== host) host.appendChild(control);
+    if (typeof syncYoutubeChrome === 'function') syncYoutubeChrome();
 }
 
 function escapeHtml(value) {
@@ -323,8 +371,8 @@ function createStationElement(station) {
             '<div class="now-playing-text" data-text="">載入中...</div>' +
             '</div>';
     }
-    return '<div class="list-group-item station-item" data-station-id="' + station.id + '">' +
-        '<div class="station-name">' + escapeHtml(station.name) + '</div>' +
+    return '<div class="station station-item" data-station-id="' + station.id + '">' +
+        '<strong class="station-name">' + escapeHtml(station.name) + '</strong>' +
         '<div class="station-tags">' +
         createTagsHtml(station.tags) +
         '</div>' +
@@ -336,7 +384,7 @@ function createStationElement(station) {
 function createTagsHtml(tags) {
     if (!tags) return '';
     return tags.map(function (tag) {
-        return '<span class="badge bg-' + getTagColor(tag) + ' me-1">' + tag + '</span>';
+        return '<span class="badge badge-' + getTagColor(tag) + '">' + tag + '</span>';
     }).join('');
 }
 
@@ -439,6 +487,10 @@ function setupEventListeners() {
     if (playPauseButton) playPauseButton.addEventListener('click', toggleYoutubePlayback);
     if (muteButton) muteButton.addEventListener('click', toggleMute);
     if (shuffleButton) shuffleButton.addEventListener('click', shufflePlaylist);
+    var expandPlayerButton = document.getElementById('expandPlayerButton');
+    var collapsePlayerButton = document.getElementById('collapsePlayerButton');
+    if (expandPlayerButton) expandPlayerButton.addEventListener('click', function () { setPlayerExpanded(true); });
+    if (collapsePlayerButton) collapsePlayerButton.addEventListener('click', function () { setPlayerExpanded(false); });
 
     // 監聽全螢幕狀態變更
     document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -450,7 +502,7 @@ function setupEventListeners() {
 // 獲取標籤顏色
 function getTagColor(tag) {
     var colors = {
-        'local': 'primary',
+        'local': 'secondary',
         'music': 'success',
         'news': 'info',
         'talk': 'warning',
@@ -563,7 +615,9 @@ function setupSocketListeners() {
     });
 
     socket.on('onlineUsers', function (count) {
-        document.getElementById('onlineUsers').textContent = '線上人數: ' + count;
+        var onlineBadge = document.getElementById('onlineUsers');
+        onlineBadge.textContent = String(count);
+        onlineBadge.setAttribute('title', '線上人數: ' + count);
     });
 }
 
@@ -1140,10 +1194,10 @@ function onPlayerError(event) {
 function setupYoutubeEventListeners() {
     // YouTube 模式切換按鈕
     var youtubeBtn = document.createElement('div');
-    youtubeBtn.className = 'list-group-item station-item';
-    youtubeBtn.innerHTML = '<div class="station-name">YouTube 播放器</div>' +
+    youtubeBtn.className = 'station station-item';
+    youtubeBtn.innerHTML = '<strong class="station-name">YouTube 播放器</strong>' +
         '<div class="station-tags">' +
-        '<span class="badge bg-danger me-1">YouTube</span>' +
+        '<span class="badge badge-info">YouTube</span>' +
         '</div>';
     stationList.insertBefore(youtubeBtn, stationList.firstChild);
 
@@ -1255,27 +1309,25 @@ function updatePlaylistUI() {
         var item = document.createElement('div');
         item.className = 'playlist-item' + (index === currentVideoIndex ? ' active' : '');
         var savedButton = window.isTv ? '' :
-            '<button type="button" class="btn btn-sm btn-success add-saved-btn" data-index="' + index + '" title="加入我的播放清單">' +
+            '<button type="button" class="btn icon-btn add-saved-btn" data-index="' + index + '" title="加入我的播放清單">' +
             '<i class="bi bi-plus-lg"></i>' +
             '</button>';
         item.innerHTML =
-            '<div class="d-flex justify-content-between align-items-center w-100 gap-2">' +
             '<span class="playlist-title">' + escapeHtml(video.title || video.id) + '</span>' +
-            '<div class="playlist-actions btn-group">' +
-            '<button type="button" class="btn btn-sm btn-outline-secondary move-up-btn" data-index="' + index + '" title="上移"' + (index === 0 ? ' disabled' : '') + '>' +
+            '<div class="playlist-actions">' +
+            '<button type="button" class="btn icon-btn move-up-btn" data-index="' + index + '" title="上移"' + (index === 0 ? ' disabled' : '') + '>' +
             '<i class="bi bi-arrow-up"></i>' +
             '</button>' +
-            '<button type="button" class="btn btn-sm btn-outline-secondary move-down-btn" data-index="' + index + '" title="下移"' + (index === playlist.length - 1 ? ' disabled' : '') + '>' +
+            '<button type="button" class="btn icon-btn move-down-btn" data-index="' + index + '" title="下移"' + (index === playlist.length - 1 ? ' disabled' : '') + '>' +
             '<i class="bi bi-arrow-down"></i>' +
             '</button>' +
-            '<button type="button" class="btn btn-sm btn-primary play-btn" data-index="' + index + '" title="播放">' +
+            '<button type="button" class="btn icon-btn play-btn" data-index="' + index + '" title="播放">' +
             '<i class="bi bi-play-fill"></i>' +
             '</button>' +
             savedButton +
-            '<button type="button" class="btn btn-sm btn-danger remove-btn" data-index="' + index + '" title="移除">' +
+            '<button type="button" class="btn icon-btn remove-btn" data-index="' + index + '" title="移除">' +
             '<i class="bi bi-trash"></i>' +
             '</button>' +
-            '</div>' +
             '</div>';
 
         item.querySelector('.play-btn').addEventListener('click', function (event) {
@@ -1533,6 +1585,7 @@ function updateNavigationButtons() {
     var shuffleButton = document.getElementById('shuffleButton');
     if (shuffleButton) shuffleButton.disabled = playlist.length <= 1;
     if (typeof updatePlayPauseButton === 'function') updatePlayPauseButton();
+    if (typeof syncYoutubeChrome === 'function') syncYoutubeChrome();
 }
 
 // 處理全螢幕狀態變更

@@ -680,6 +680,7 @@ img { max-width: 100%; }
     padding: 0.4rem 0.45rem;
 }
 .dropdown-item:hover { background: var(--b3); }
+.dropdown-item .theme-label { flex: 1 1 auto; text-align: left; }
 
 .mobile-station-toggle, .mobile-sidebar-backdrop { display: none; }
 html.is-tv .pc-only { display: none !important; }

@@ -56,13 +56,17 @@
             button.type = 'button';
             button.className = 'dropdown-item';
             button.setAttribute('data-theme-id', theme.id);
-            button.textContent = theme.label;
+            button.setAttribute('aria-label', theme.label);
             var swatch = document.createElement('span');
             swatch.className = 'swatch';
             swatch.setAttribute('data-theme', theme.id);
+            swatch.setAttribute('aria-hidden', 'true');
             swatch.innerHTML = '<i></i><i></i><i></i><i></i>';
+            var label = document.createElement('span');
+            label.className = 'theme-label';
+            label.textContent = theme.label;
             button.appendChild(swatch);
-            button.appendChild(document.createTextNode(theme.label));
+            button.appendChild(label);
             button.addEventListener('click', function () {
                 applyThemeById(theme.id);
                 var switcher = document.getElementById('themeSwitcher');

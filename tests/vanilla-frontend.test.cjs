@@ -24,7 +24,14 @@ test('頁面版本與 package.json 一致', () => {
     const match = read('index.html').match(/id="vanillaVersion">v([^<]+)</);
     assert.ok(match, '找不到版本標籤');
     assert.equal(match[1], pkg.version);
-    assert.equal(pkg.version, '3.1.2');
+    assert.equal(pkg.version, '3.1.3');
+});
+
+test('主題選單每一項只顯示一次名稱', () => {
+    const source = read('pc-theme.js');
+    assert.doesNotMatch(source, /button\.textContent\s*=\s*theme\.label/);
+    assert.match(source, /label\.textContent = theme\.label/);
+    assert.match(source, /swatch\.setAttribute\('aria-hidden', 'true'\)/);
 });
 
 test('聊天室與播放清單管理預設關閉', () => {

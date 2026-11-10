@@ -24,7 +24,7 @@ test('頁面版本與 package.json 一致', () => {
     const match = read('index.html').match(/id="vanillaVersion">v([^<]+)</);
     assert.ok(match, '找不到版本標籤');
     assert.equal(match[1], pkg.version);
-    assert.equal(pkg.version, '3.1.4');
+    assert.equal(pkg.version, '3.1.5');
 });
 
 test('主題選單每一項只顯示一次名稱', () => {

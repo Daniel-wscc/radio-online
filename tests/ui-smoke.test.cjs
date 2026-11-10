@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
@@ -61,24 +62,91 @@ function startServer() {
     });
 }
 
+function findBrowser() {
+    if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) {
+        return process.env.CHROME_PATH;
+    }
+    const local = process.env.LOCALAPPDATA || '';
+    const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+    const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+    const candidates = [
+        path.join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(programFilesX86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(local, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(programFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+        path.join(programFilesX86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+        path.join(local, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/microsoft-edge',
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'
+    ];
+    for (const file of candidates) {
+        if (file && fs.existsSync(file)) return file;
+    }
+    return '';
+}
+
+function stopProcess(proc) {
+    return new Promise((resolve) => {
+        if (!proc || proc.exitCode !== null || proc.signalCode !== null) {
+            resolve();
+            return;
+        }
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+        };
+        proc.once('exit', finish);
+        try {
+            proc.kill();
+        } catch (error) {
+            finish();
+            return;
+        }
+        setTimeout(() => {
+            if (proc.exitCode !== null || proc.signalCode !== null) {
+                finish();
+                return;
+            }
+            if (process.platform === 'win32' && proc.pid) {
+                const killer = spawn('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+                killer.on('exit', finish);
+                killer.on('error', finish);
+                return;
+            }
+            try { proc.kill('SIGKILL'); } catch (error) { /* 略過 */ }
+            finish();
+        }, 1000);
+    });
+}
+
 function waitForDevtools(chrome) {
     return new Promise((resolve, reject) => {
         let buf = '';
-        const timer = setTimeout(() => reject(new Error('Chrome 沒有開啟除錯連接\n' + buf)), 20000);
-        function onData(chunk) {
+        let settled = false;
+        const finish = (err, value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (err) reject(err);
+            else resolve(value);
+        };
+        const timer = setTimeout(() => finish(new Error('瀏覽器沒有開啟除錯連接\n' + buf)), 10000);
+        const onData = (chunk) => {
             buf += chunk.toString();
             const match = buf.match(/ws:\/\/(?:127\.0\.0\.1|localhost):\d+\/devtools\/browser\/[^\s]+/);
-            if (match) {
-                clearTimeout(timer);
-                resolve(match[0]);
-            }
-        }
-        chrome.stdout.on('data', onData);
-        chrome.stderr.on('data', onData);
-        chrome.on('exit', (code) => {
-            clearTimeout(timer);
-            reject(new Error('Chrome 提前結束，代碼 ' + code + '\n' + buf));
-        });
+            if (match) finish(null, match[0]);
+        };
+        chrome.on('error', (err) => finish(new Error('無法啟動瀏覽器：' + err.message)));
+        if (chrome.stdout) chrome.stdout.on('data', onData);
+        if (chrome.stderr) chrome.stderr.on('data', onData);
+        chrome.on('exit', (code) => finish(new Error('瀏覽器提前結束，代碼 ' + code + '\n' + buf)));
     });
 }
 
@@ -130,11 +198,16 @@ function fulfill(cdp, requestId, body, contentType) {
     });
 }
 
-test('桌面與 webOS 使用者代理都能開啟頁面，且電視隱藏電腦功能', { timeout: 120000 }, async (t) => {
+test('桌面與 webOS 使用者代理都能開啟頁面，且電視隱藏電腦功能', { timeout: 45000 }, async (t) => {
+    const browserPath = findBrowser();
+    if (!browserPath) {
+        t.skip('找不到 Chrome 或 Edge，略過瀏覽器煙霧測試。可設定環境變數 CHROME_PATH。');
+        return;
+    }
     const server = await startServer();
     const port = server.address().port;
-    const profile = fs.mkdtempSync('/tmp/radio-smoke-');
-    const chrome = spawn('/usr/bin/google-chrome', [
+    const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'radio-smoke-'));
+    const chrome = spawn(browserPath, [
         '--headless=new',
         '--no-sandbox',
         '--disable-dev-shm-usage',
@@ -145,12 +218,9 @@ test('桌面與 webOS 使用者代理都能開啟頁面，且電視隱藏電腦�
         '--remote-debugging-port=0',
         '--user-data-dir=' + profile
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    chrome.on('error', () => {});
     t.after(async () => {
-        chrome.kill('SIGKILL');
-        await new Promise(resolve => {
-            if (chrome.exitCode !== null || chrome.signalCode !== null) resolve();
-            else chrome.once('exit', () => resolve());
-        });
+        await stopProcess(chrome);
         await new Promise(resolve => setTimeout(resolve, 200));
         server.close();
         fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
@@ -199,7 +269,7 @@ test('桌面與 webOS 使用者代理都能開啟頁面，且電視隱藏電腦�
             width, height, deviceScaleFactor: 1, mobile: width < 500
         });
         const loaded = new Promise((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error('頁面載入逾時：' + pathname)), 20000);
+            const timer = setTimeout(() => reject(new Error('頁面載入逾時：' + pathname)), 8000);
             const listener = (msg) => {
                 if (msg.method === 'Page.loadEventFired') {
                     clearTimeout(timer);
@@ -247,7 +317,7 @@ test('桌面與 webOS 使用者代理都能開啟頁面，且電視隱藏電腦�
     const desktop = await openScenario('/', DESKTOP_UA, 1280, 720);
     assert.equal(desktop.isTv, false);
     assert.equal(desktop.title, '芯禾電台');
-    assert.equal(desktop.version, 'v3.1.4');
+    assert.equal(desktop.version, 'v3.1.5');
     assert.equal(desktop.nowPlayingCount, 4);
     assert.equal(desktop.nowText, 'NOW PLAYING TEST SONG TITLE THAT IS LONG ENOUGH');
     assert.equal(desktop.marquee, true);

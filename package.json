@@ -1,6 +1,6 @@
 {
   "name": "radio-online",
-  "version": "3.1.4",
+  "version": "3.1.5",
   "scripts": {
     "ng": "ng",
     "start": "nx serve --host 0.0.0.0",
@@ -25,7 +25,7 @@
     "@angular/router": "^18.0.0",
     "@angular/youtube-player": "^18.2.14",
     "@socket.io/admin-ui": "^0.5.1",
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^12.11.1",
     "core-js": "^2.6.12",
     "daisyui": "^5.0.37",
     "hls.js": "^1.5.20",

@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { createRadioStore, attachRadioSync } from './radio-sync.cjs';
+import { expandYoutubePlaylist } from './youtube-playlist.cjs';
 
 console.log('=== 正在啟動 radio-online-server 1.0.3 ===');
 
@@ -252,6 +253,24 @@ attachRadioSync(io, radioStore);
 io.on('connection', (socket) => {
   socket.on('chatMessage', (message: ChatMessage) => {
     io.emit('newChatMessage', message);
+  });
+
+  socket.on('expandYoutubePlaylist', (payload: { playlistId?: string; requestId?: string }) => {
+    const playlistId = payload && payload.playlistId ? String(payload.playlistId) : '';
+    const requestId = payload && payload.requestId ? String(payload.requestId) : '';
+    expandYoutubePlaylist(playlistId, {
+      onProgress: (loaded: number) => {
+        socket.emit('youtubePlaylistProgress', { requestId, loaded });
+      }
+    }).then((result) => {
+      socket.emit('youtubePlaylistExpanded', Object.assign({ requestId }, result));
+    }).catch(() => {
+      socket.emit('youtubePlaylistExpanded', {
+        requestId,
+        ok: false,
+        error: '讀取播放清單時發生錯誤。請稍後再試。'
+      });
+    });
   });
 
   // 播放清單管理相關事件

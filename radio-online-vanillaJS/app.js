@@ -1355,25 +1355,103 @@ function switchToYoutube() {
 }
 
 // 載入 YouTube 播放清單
+function setImportStatus(message, isError) {
+    var status = document.getElementById('importStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    if (isError) status.className = 'import-status is-error';
+    else status.className = 'import-status';
+}
+
+function expandServerPlaylist(playlistId, onProgress, done) {
+    if (!socket) {
+        done({ ok: false, error: '尚未連上伺服器。' });
+        return;
+    }
+    var requestId = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    var settled = false;
+    function finish(payload) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.off('youtubePlaylistExpanded', onResult);
+        socket.off('youtubePlaylistProgress', onProgressEvent);
+        done(payload || { ok: false, error: '讀取播放清單時發生錯誤。' });
+    }
+    function onResult(payload) {
+        if (!payload || payload.requestId !== requestId) return;
+        finish(payload);
+    }
+    function onProgressEvent(payload) {
+        if (!payload || payload.requestId !== requestId) return;
+        onProgress(payload.loaded || 0);
+    }
+    var timer = setTimeout(function () {
+        finish({ ok: false, error: '讀取播放清單逾時。' });
+    }, 60000);
+    socket.on('youtubePlaylistExpanded', onResult);
+    socket.on('youtubePlaylistProgress', onProgressEvent);
+    socket.emit('expandYoutubePlaylist', { playlistId: playlistId, requestId: requestId });
+}
+
 function loadYoutubePlaylist() {
     var parsed = window.RadioSyncClient
         ? RadioSyncClient.collectYoutubeImport(youtubeUrlInput.value, extractVideoId)
         : [];
     youtubeUrlInput.value = '';
-    if (!parsed.length) return;
-    var titles = new Array(parsed.length);
-    var done = 0;
-    parsed.forEach(function (item, index) {
+    if (!parsed.length) {
+        setImportStatus('沒有可匯入的網址。', true);
+        return;
+    }
+    var slots = new Array(parsed.length);
+    var notes = [];
+    var pending = parsed.length;
+    if (addToPlaylistBtn) addToPlaylistBtn.disabled = true;
+    setImportStatus('正在匯入…', false);
+
+    function finishOne() {
+        pending--;
+        if (pending > 0) return;
+        var payload = [];
+        var i;
+        var j;
+        for (i = 0; i < slots.length; i++) {
+            var group = slots[i] || [];
+            for (j = 0; j < group.length; j++) payload.push(group[j]);
+        }
+        if (addToPlaylistBtn) addToPlaylistBtn.disabled = false;
+        if (!payload.length) {
+            setImportStatus(notes[0] || '沒有可匯入的影片。', true);
+            return;
+        }
+        if (socket) socket.emit('queueAddMany', { items: payload });
+        var message = '已匯入 ' + payload.length + ' 首';
+        if (notes.length) message += '。' + notes.join('');
+        setImportStatus(message, notes.length > 0);
+    }
+
+    parsed.forEach(function (item) {
+        if (item.kind === 'playlist') {
+            expandServerPlaylist(item.playlistId, function (loaded) {
+                setImportStatus('正在讀取播放清單…已取得 ' + loaded + ' 首', false);
+            }, function (result) {
+                var videos = [];
+                var list = result && result.items ? result.items : [];
+                var n;
+                for (n = 0; n < list.length; n++) {
+                    if (!list[n] || !list[n].videoId) continue;
+                    videos.push({ videoId: list[n].videoId, title: list[n].title || list[n].videoId });
+                }
+                slots[item.sourceIndex] = videos;
+                if (result && result.message) notes.push(result.message);
+                if (!result || !result.ok) notes.push((result && result.error) || '無法匯入播放清單。');
+                finishOne();
+            });
+            return;
+        }
         getVideoDetails(item.videoId, function (title) {
-            titles[index] = title || item.videoId;
-            done++;
-            if (done !== parsed.length) return;
-            var payload = [];
-            var i;
-            for (i = 0; i < parsed.length; i++) {
-                payload.push({ videoId: parsed[i].videoId, title: titles[i] });
-            }
-            if (socket) socket.emit('queueAddMany', { items: payload });
+            slots[item.sourceIndex] = [{ videoId: item.videoId, title: title || item.videoId }];
+            finishOne();
         });
     });
 }

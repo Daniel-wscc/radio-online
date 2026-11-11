@@ -1,6 +1,6 @@
 {
   "name": "radio-online",
-  "version": "3.1.8",
+  "version": "3.1.9",
   "scripts": {
     "ng": "ng",
     "start": "nx serve --host 0.0.0.0",

@@ -28,7 +28,9 @@ test('伺服器 Dockerfile 的 tsc 不會覆寫 radio-sync.cjs', (t) => {
     const original = fs.readFileSync(path.join(serverDir, 'radio-sync.cjs'));
     try {
         fs.copyFileSync(path.join(serverDir, 'index.ts'), path.join(dir, 'index.ts'));
-        fs.copyFileSync(path.join(serverDir, 'radio-sync.cjs'), path.join(dir, 'radio-sync.cjs'));
+        fs.readdirSync(serverDir).forEach((name) => {
+            if (name.endsWith('.cjs')) fs.copyFileSync(path.join(serverDir, name), path.join(dir, name));
+        });
         fs.writeFileSync(path.join(dir, 'tsconfig.json'), JSON.stringify(config));
         const result = spawnSync(process.execPath, [tscJs, '-p', dir, '--pretty', 'false'], {
             cwd: dir,

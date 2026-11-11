@@ -46,7 +46,7 @@
         </div>
         <div class="version-info">
             <div class="version-name" id="appTitle">芯禾電台</div>
-            <div class="version-meta"><span id="vanillaVersion">v3.1.8</span> - <span id="vanillaYear"></span></div>
+            <div class="version-meta"><span id="vanillaVersion">v3.1.9</span> - <span id="vanillaYear"></span></div>
             <script>document.getElementById('vanillaYear').textContent = new Date().getFullYear();</script>
         </div>
     </aside>
@@ -97,7 +97,8 @@
                     <div class="yt-stage" id="ytStage"></div>
                     <div class="card">
                         <div class="card-body">
-                            <textarea class="form-control" id="youtubeUrlInput" rows="5" placeholder="請輸入 YouTube 網址（每行一個）"></textarea>
+                            <textarea class="form-control" id="youtubeUrlInput" rows="5" placeholder="每行一個影片或播放清單網址"></textarea>
+                            <p id="importStatus" class="import-status" role="status" aria-live="polite"></p>
                             <div class="input-actions">
                                 <button class="btn btn-primary btn-sm" id="addToPlaylist" type="button">加入播放清單</button>
                                 <button class="btn btn-sm" id="clearPlaylist" type="button">清除播放清單</button>

@@ -2,6 +2,11 @@
 (function (root) {
     'use strict';
 
+    function playlistIdFromLine(line) {
+        var match = String(line || '').match(/[?&]list=([A-Za-z0-9_-]+)/);
+        return match ? match[1] : '';
+    }
+
     function collectYoutubeImport(text, extractVideoId) {
         var lines = String(text || '').split('\n');
         var items = [];
@@ -9,9 +14,14 @@
         for (i = 0; i < lines.length; i++) {
             var line = lines[i].replace(/^\s+|\s+$/g, '');
             if (!line) continue;
-            var videoId = extractVideoId(line);
+            var playlistId = playlistIdFromLine(line);
+            if (playlistId) {
+                items.push({ kind: 'playlist', playlistId: playlistId, sourceIndex: i });
+                continue;
+            }
+            var videoId = extractVideoId ? extractVideoId(line) : '';
             if (!videoId) continue;
-            items.push({ videoId: videoId, sourceIndex: i });
+            items.push({ kind: 'video', videoId: videoId, sourceIndex: i });
         }
         return items;
     }
@@ -93,6 +103,7 @@
 
     root.RadioSyncClient = {
         collectYoutubeImport: collectYoutubeImport,
+        playlistIdFromLine: playlistIdFromLine,
         isStaleRevision: isStaleRevision,
         nextAppliedRevision: nextAppliedRevision,
         reconcileVolume: reconcileVolume,

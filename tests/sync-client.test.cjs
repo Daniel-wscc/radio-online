@@ -30,8 +30,35 @@ test('匯入保持輸入順序，無效行不會擋下其他網址', () => {
         ids.push(String(item.videoId));
         indexes.push(Number(item.sourceIndex));
     }
+    const kinds = [];
+    for (const item of items) kinds.push(String(item.kind));
     assert.deepEqual(ids, ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc']);
     assert.deepEqual(indexes, [0, 2, 4]);
+    assert.deepEqual(kinds, ['video', 'video', 'video']);
+});
+
+test('播放清單網址會整份匯入，含 list 的觀看網址也一樣，順序保持', () => {
+    const text = [
+        'https://www.youtube.com/watch?v=aaaaaaaaaaa',
+        'https://www.youtube.com/playlist?list=PLccccccccccc',
+        'https://www.youtube.com/watch?v=bbbbbbbbbbb&list=PLdddddddddd',
+        'not a url'
+    ].join('\n');
+    const items = api.collectYoutubeImport(text, extractVideoId);
+    const rows = [];
+    for (const item of items) {
+        rows.push({
+            kind: String(item.kind),
+            videoId: item.videoId ? String(item.videoId) : '',
+            playlistId: item.playlistId ? String(item.playlistId) : '',
+            sourceIndex: Number(item.sourceIndex)
+        });
+    }
+    assert.deepEqual(rows, [
+        { kind: 'video', videoId: 'aaaaaaaaaaa', playlistId: '', sourceIndex: 0 },
+        { kind: 'playlist', videoId: '', playlistId: 'PLccccccccccc', sourceIndex: 1 },
+        { kind: 'playlist', videoId: '', playlistId: 'PLdddddddddd', sourceIndex: 2 }
+    ]);
 });
 
 test('連續調小音量時，自己較舊的回聲不會把音量拉高', () => {

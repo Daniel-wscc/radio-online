@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { createRadioStore, attachRadioSync } from './radio-sync.cjs';
 import { expandYoutubePlaylist } from './youtube-playlist.cjs';
+import { attachHitFmRoutes } from './hitfm-proxy.cjs';
 
 console.log('=== 正在啟動 radio-online-server 1.0.3 ===');
 
@@ -28,6 +29,7 @@ const ALLOWED_ORIGINS = [
   "http://192.168.11.125:4200",
   "https://demo.wscc1031.synology.me",
   "https://radio.wscc1031.synology.me",
+  "https://test.wscc1031.synology.me",
   "https://admin.socket.io"
 ];
 
@@ -39,6 +41,7 @@ const CORS_OPTIONS = {
 };
 
 app.use(cors(CORS_OPTIONS));
+attachHitFmRoutes(app);
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {

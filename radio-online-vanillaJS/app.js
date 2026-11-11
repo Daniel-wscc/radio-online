@@ -26,7 +26,7 @@ var customStations = [
     },
     {
         name: 'Hit FM台北之音廣播',
-        url: 'https://m3u8-proxy.wscc1031.synology.me/fetch/?url=http://202.39.43.67:1935/live/RA000036/chunklist.m3u8',
+        url: String(window.RADIO_SOCKET_URL || 'https://radio.wscc1031.synology.me').replace(/\/$/, '') + '/stream/hitfm.m3u8',
         tags: ['music'],
         id: 'custom_5'
     },

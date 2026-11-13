@@ -317,7 +317,7 @@ test('桌面與 webOS 使用者代理都能開啟頁面，且電視隱藏電腦�
     const desktop = await openScenario('/', DESKTOP_UA, 1280, 720);
     assert.equal(desktop.isTv, false);
     assert.equal(desktop.title, '芯禾電台');
-    assert.equal(desktop.version, 'v3.1.11');
+    assert.equal(desktop.version, 'v3.1.12');
     assert.equal(desktop.nowPlayingCount, 4);
     assert.equal(desktop.nowText, 'NOW PLAYING TEST SONG TITLE THAT IS LONG ENOUGH');
     assert.equal(desktop.marquee, true);

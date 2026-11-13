@@ -920,15 +920,6 @@ html.is-tv .form-range::-moz-range-thumb {
     height: 40px;
     border-width: 4px;
 }
-html.is-tv .volume-readout {
-    display: inline-block;
-    min-width: 3.2rem;
-    font-size: 1.35rem;
-    font-weight: 800;
-    line-height: 1;
-    text-align: right;
-    color: var(--bc);
-}
 html.is-tv #youtubeVolumeHost {
     width: auto;
     flex: 1 1 18rem;
@@ -938,4 +929,3 @@ html.is-tv .mini-player {
     height: auto;
     min-height: 88px;
 }
-.volume-readout { display: none; }

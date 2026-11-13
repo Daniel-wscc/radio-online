@@ -315,8 +315,6 @@ function rememberVolume(value) {
         volumeSlider.value = savedVolume * 10;
         volumeSlider.style.setProperty('--value', (savedVolume * 100) + '%');
     }
-    var volumeReadout = document.getElementById('volumeReadout');
-    if (volumeReadout) volumeReadout.textContent = String(Math.round(savedVolume * 100));
     return savedVolume;
 }
 

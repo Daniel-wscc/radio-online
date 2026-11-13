@@ -116,6 +116,13 @@ test('連續調小音量時，自己較舊的回聲不會把音量拉高', () =>
     assert.equal(api.isOwnStaleEcho({ clientId: 'B', opId: 1 }, 'A', 20), false);
 });
 
+test('音量四捨五入到小數兩位', () => {
+    assert.equal(api.roundVolume(0.22999999999999998), 0.23);
+    assert.equal(api.roundVolume(1.004), 1);
+    assert.equal(api.roundVolume(-0.02), 0);
+    assert.equal(api.roundVolume('nope'), null);
+});
+
 test('較舊的版號要捨棄，拖曳中的音量先暫存、放開後再套用', () => {
     assert.equal(api.isStaleRevision(5, 4), true);
     assert.equal(api.isStaleRevision(5, 5), false);

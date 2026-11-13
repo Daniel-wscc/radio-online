@@ -281,7 +281,7 @@ var controlCard = document.getElementById('controlCard');
 // 新增全域變數
 var prevButton = document.getElementById('prevButton');
 var nextButton = document.getElementById('nextButton');
-var savedVolume = volumeSlider ? parseFloat(volumeSlider.value) / 10 : 1;
+var savedVolume = normalizeVolume(volumeSlider ? parseFloat(volumeSlider.value) / 10 : 1);
 var volumeSyncLockUntil = 0;
 var volumeDragging = false;
 var deferredServerVolume = null;
@@ -300,9 +300,21 @@ function getPlaylistVideoId(items, index) {
 }
 
 function normalizeVolume(value) {
-    value = parseFloat(value);
-    if (isNaN(value)) return savedVolume;
-    return Math.max(0, Math.min(1, value));
+    var rounded = null;
+    if (window.RadioSyncClient && typeof RadioSyncClient.roundVolume === 'function') {
+        rounded = RadioSyncClient.roundVolume(value);
+    } else {
+        value = parseFloat(value);
+        if (!isNaN(value)) {
+            if (value < 0) value = 0;
+            if (value > 1) value = 1;
+            rounded = Math.round(value * 100) / 100;
+        }
+    }
+    if (typeof rounded !== 'number' || isNaN(rounded)) {
+        return typeof savedVolume === 'number' && !isNaN(savedVolume) ? savedVolume : 1;
+    }
+    return rounded;
 }
 
 function getSavedVolume() {

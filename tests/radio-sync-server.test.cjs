@@ -187,6 +187,17 @@ test('大型佇列下連續調小音量仍很快，兩邊都停在 0，而且不
     }
 });
 
+test('音量會先限制在 0 到 1，再四捨五入到小數兩位', () => {
+    const { db } = tempDb();
+    const store = createRadioStore(db);
+    const messy = store.apply('setVolume', { volume: 0.22999999999999998 });
+    assert.equal(messy.ok, true);
+    assert.equal(messy.state.volume, 0.23);
+    assert.equal(store.apply('setVolume', { volume: 1.2 }).state.volume, 1);
+    assert.equal(store.apply('setVolume', { volume: -0.04 }).state.volume, 0);
+    db.close();
+});
+
 test('空佇列仍可進入 YouTube，無效匯入行會被跳過且順序不變', () => {
     const { db } = tempDb();
     const store = createRadioStore(db);

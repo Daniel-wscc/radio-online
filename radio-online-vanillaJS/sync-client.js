@@ -7,6 +7,14 @@
         return match ? match[1] : '';
     }
 
+    function roundVolume(value) {
+        var volume = parseFloat(value);
+        if (!isFinite(volume)) return null;
+        if (volume < 0) volume = 0;
+        if (volume > 1) volume = 1;
+        return Math.round(volume * 100) / 100;
+    }
+
     function collectYoutubeImport(text, extractVideoId) {
         var lines = String(text || '').split('\n');
         var items = [];
@@ -102,6 +110,7 @@
     }
 
     root.RadioSyncClient = {
+        roundVolume: roundVolume,
         collectYoutubeImport: collectYoutubeImport,
         playlistIdFromLine: playlistIdFromLine,
         isStaleRevision: isStaleRevision,

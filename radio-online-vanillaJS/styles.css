@@ -868,6 +868,7 @@ html.is-tv .playlist-actions .btn {
 
 /* 電視遙控器：音量列加大，電腦版不套用這些尺寸。 */
 html.is-tv .volume-control {
+    align-items: center;
     gap: 1rem;
     min-height: 80px;
 }
@@ -890,7 +891,10 @@ html.is-tv .volume-btn:focus-visible {
     transform: scale(1.06);
 }
 html.is-tv .form-range {
-    height: 44px;
+    margin: 0;
+    padding: 0;
+    height: 40px;
+    vertical-align: middle;
 }
 html.is-tv .form-range:focus,
 html.is-tv .form-range:focus-visible {
@@ -900,11 +904,13 @@ html.is-tv .form-range:focus-visible {
 }
 html.is-tv .form-range::-webkit-slider-runnable-track {
     height: 12px;
-    margin-top: 16px;
+    margin: 0;
 }
 html.is-tv .form-range::-webkit-slider-thumb {
+    box-sizing: border-box;
     width: 40px;
     height: 40px;
+    /* (軌道 12px − 拇指 40px) / 2，讓軌道中線對齊按鈕中線 */
     margin-top: -14px;
     border-width: 4px;
 }

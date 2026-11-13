@@ -861,8 +861,81 @@ html:not(.is-tv) #themeToggle { display: none !important; }
 }
 
 html.is-tv .playback-controls .btn,
-html.is-tv .volume-btn,
 html.is-tv .playlist-actions .btn {
     min-width: 2.75rem;
     min-height: 2.75rem;
 }
+
+/* 電視遙控器：音量列加大，電腦版不套用這些尺寸。 */
+html.is-tv .volume-control {
+    gap: 1rem;
+    min-height: 80px;
+}
+html.is-tv .volume-btn {
+    width: 72px;
+    height: 72px;
+    min-width: 72px;
+    min-height: 72px;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    background: var(--b1);
+    color: var(--bc);
+    font-size: 1.75rem;
+    box-shadow: 0 2px 8px rgba(31, 41, 55, 0.12);
+}
+html.is-tv .volume-btn:focus,
+html.is-tv .volume-btn:focus-visible {
+    outline: 4px solid var(--p);
+    outline-offset: 4px;
+    transform: scale(1.06);
+}
+html.is-tv .form-range {
+    height: 44px;
+}
+html.is-tv .form-range:focus,
+html.is-tv .form-range:focus-visible {
+    outline: 3px solid var(--p);
+    outline-offset: 6px;
+    border-radius: 999px;
+}
+html.is-tv .form-range::-webkit-slider-runnable-track {
+    height: 12px;
+    margin-top: 16px;
+}
+html.is-tv .form-range::-webkit-slider-thumb {
+    width: 40px;
+    height: 40px;
+    margin-top: -14px;
+    border-width: 4px;
+}
+html.is-tv .form-range:focus::-webkit-slider-thumb,
+html.is-tv .form-range:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 4px var(--p);
+}
+html.is-tv .form-range::-moz-range-track {
+    height: 12px;
+}
+html.is-tv .form-range::-moz-range-thumb {
+    width: 40px;
+    height: 40px;
+    border-width: 4px;
+}
+html.is-tv .volume-readout {
+    display: inline-block;
+    min-width: 3.2rem;
+    font-size: 1.35rem;
+    font-weight: 800;
+    line-height: 1;
+    text-align: right;
+    color: var(--bc);
+}
+html.is-tv #youtubeVolumeHost {
+    width: auto;
+    flex: 1 1 18rem;
+    min-width: 18rem;
+}
+html.is-tv .mini-player {
+    height: auto;
+    min-height: 88px;
+}
+.volume-readout { display: none; }

@@ -315,6 +315,8 @@ function rememberVolume(value) {
         volumeSlider.value = savedVolume * 10;
         volumeSlider.style.setProperty('--value', (savedVolume * 100) + '%');
     }
+    var volumeReadout = document.getElementById('volumeReadout');
+    if (volumeReadout) volumeReadout.textContent = String(Math.round(savedVolume * 100));
     return savedVolume;
 }
 
@@ -516,6 +518,23 @@ function setupEventListeners() {
         volumeUpBtn.addEventListener('click', function () {
             var currentValue = parseFloat(volumeSlider.value);
             var newValue = Math.min(10, currentValue + 1);
+            volumeSlider.value = newValue;
+            volumeSlider.dispatchEvent(new Event('input'));
+        });
+    }
+
+    if (window.isTv && volumeSlider) {
+        volumeSlider.addEventListener('keydown', function (event) {
+            var key = event.key || '';
+            var code = event.keyCode || event.which;
+            var delta = 0;
+            if (key === 'ArrowLeft' || code === 37) delta = -1;
+            else if (key === 'ArrowRight' || code === 39) delta = 1;
+            if (!delta) return;
+            event.preventDefault();
+            var currentValue = parseFloat(volumeSlider.value);
+            var newValue = Math.max(0, Math.min(10, currentValue + delta));
+            if (newValue === currentValue) return;
             volumeSlider.value = newValue;
             volumeSlider.dispatchEvent(new Event('input'));
         });

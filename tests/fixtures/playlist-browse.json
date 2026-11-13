@@ -1,0 +1,24 @@
+{
+  "onResponseReceivedActions": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": [
+          {
+            "playlistVideoRenderer": {
+              "videoId": "ddddddddddd",
+              "title": { "runs": [{ "text": "歌曲丁" }] },
+              "isPlayable": true
+            }
+          },
+          {
+            "playlistVideoRenderer": {
+              "videoId": "eeeeeeeeeee",
+              "title": { "simpleText": "[Deleted video]" },
+              "isPlayable": false
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

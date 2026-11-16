@@ -16,6 +16,7 @@
       }
     },
     "deploy": {
+      "dependsOn": ["radio-online:check"],
       "executor": "nx:run-commands",
       "options": {
         "cwd": "apps/radio-online-server",

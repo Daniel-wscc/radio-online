@@ -1,5 +1,7 @@
 # RadioOnline
 
+部署出去的前端是 `radio-online-vanillaJS/`（電腦與 webOS TV 22 共用）。`src/` 的 Angular 程式仍留在儲存庫，但 `nx deploy` 不再建置或上傳它。Socket 正式站 `https://radio.wscc1031.synology.me`，路徑含 `radio-online-test` 時改連 `https://test.wscc1031.synology.me`。
+
 This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 19.1.4.
 
 ## Development server

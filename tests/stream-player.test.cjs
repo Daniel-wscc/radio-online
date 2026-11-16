@@ -138,6 +138,25 @@ test('old A errors cannot replace selected B', async () => {
     a.dispatchEvent(new Event('error'));
     assert.equal(e.player.pending, pending);
     assert.equal(e.player.retryAt, 0);
+    assert.equal(e.player.target.name, 'B');
+    assert.notEqual(e.states.at(-1).phase, 'retrying');
+});
+
+test('15 秒沒播成會標成重試，再點同一台立刻重開；自動播放被擋不算壞掉', async () => {
+    const e = setup();
+    e.player.select(A);
+    assert.equal(e.states.at(-1).phase, 'loading');
+    assert.equal(e.states.at(-1).targetId, 'a');
+    e.advance(15001);
+    assert.equal(e.states.at(-1).phase, 'retrying');
+    e.player.select(A);
+    assert.equal(e.player.pending.station.id, 'a');
+    assert.equal(e.states.at(-1).phase, 'loading');
+    const audio = e.player.pending.audio;
+    audio.play = () => Promise.reject(Object.assign(new Error(), { name: 'NotAllowedError' }));
+    audio.readyState = 3; audio.end = 5; e.player.tick();
+    await Promise.resolve();
+    assert.equal(e.states.at(-1).phase, 'blocked');
 });
 
 test('YouTube/stop destroys A and B and prevents stale playback or retries', async () => {

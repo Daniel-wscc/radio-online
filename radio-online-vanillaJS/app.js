@@ -80,6 +80,23 @@ var suppressIndexUpdatesUntil = 0;
 
 var radioStreamPlayer = null;
 var radioPlaybackPhase = 'idle';
+var stationStatus = window.StationStatus ? window.StationStatus.create() : null;
+
+function paintStationLoadMarks() {
+    if (!stationStatus || !document.querySelectorAll) return;
+    var view = stationStatus.view();
+    var items = document.querySelectorAll('.station-item[data-station-id]');
+    var i;
+    for (i = 0; i < items.length; i++) {
+        var id = items[i].getAttribute('data-station-id');
+        var slot = items[i].querySelector('[data-station-state]');
+        if (!slot) continue;
+        var html = '';
+        if (view.loadingId === id) html += '<span class="station-spinner" aria-hidden="true"></span>';
+        if (view.failed[id]) html += '<span class="station-fail">無法播放</span>';
+        if (slot.innerHTML !== html) slot.innerHTML = html;
+    }
+}
 
 function startRadioTransition(station) {
     if (!radioStreamPlayer) {
@@ -89,20 +106,23 @@ function startRadioTransition(station) {
             onState: function (state) {
                 radioPlaybackPhase = state.phase;
                 if (state.audio) audioPlayer = state.audio;
+                if (stationStatus && state.targetId) {
+                    stationStatus.apply({ phase: state.phase, stationId: state.targetId });
+                    paintStationLoadMarks();
+                }
                 var status = document.getElementById('radioLoadStatus');
                 var retry = document.getElementById('radioRetryButton');
                 var message = '';
-                if (state.phase === 'loading' || state.phase === 'retrying') {
-                    message = (state.phase === 'retrying' ? '正在重新載入 ' : '正在載入 ') + state.targetName + '…';
-                    if (state.activeName) message += ' 就緒前保留 ' + state.activeName + ' 的播放。';
-                } else if (state.phase === 'blocked') {
-                    message = '此裝置尚未允許播放，請按「重試播放」。';
-                } else if (state.phase === 'playing') {
-                    message = '本裝置播放中：' + state.activeName;
+                if (state.phase === 'loading') message = '載入中…';
+                else if (state.phase === 'retrying') message = '無法播放';
+                else if (state.phase === 'blocked') message = '此裝置尚未允許播放，請按「重試播放」。';
+                if (status) {
+                    status.textContent = message;
+                    status.hidden = !message;
+                    if (state.phase === 'retrying') status.className = 'status-line is-error';
+                    else status.className = 'status-line';
                 }
-                status.textContent = message;
-                status.hidden = !message;
-                retry.hidden = state.phase !== 'blocked';
+                if (retry) retry.hidden = state.phase !== 'blocked';
             }
         });
     }
@@ -456,7 +476,10 @@ function createStationElement(station) {
             '</div>';
     }
     return '<div class="station station-item" data-station-id="' + station.id + '">' +
+        '<div class="station-head">' +
         '<strong class="station-name">' + escapeHtml(station.name) + '</strong>' +
+        '<span class="station-state" data-station-state></span>' +
+        '</div>' +
         '<div class="station-tags">' +
         createTagsHtml(station.tags) +
         '</div>' +

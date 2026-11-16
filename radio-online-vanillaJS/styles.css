@@ -362,6 +362,24 @@ img { max-width: 100%; }
     text-align: center;
 }
 .status-line { text-align: center; margin: 0.75rem 0; }
+.status-line.is-error { color: var(--er); font-weight: 700; }
+.station-head { display: flex; align-items: center; gap: 0.5rem; }
+.station-head .station-name { flex: 1 1 auto; min-width: 0; }
+.station-state { display: inline-flex; align-items: center; gap: 0.35rem; flex: 0 0 auto; min-height: 1.25rem; }
+.station-spinner {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    border: 2px solid var(--b3);
+    border-top-color: var(--p);
+    border-radius: 50%;
+    animation: station-spin 0.8s linear infinite;
+}
+.station-fail { color: var(--er); font-size: 0.8rem; font-weight: 700; white-space: nowrap; }
+@keyframes station-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
 .btn-row { display: flex; justify-content: center; gap: 0.5rem; flex-wrap: wrap; }
 .volume-control {
     display: flex;
@@ -931,6 +949,13 @@ html.is-tv #youtubeVolumeHost {
     flex: 1 1 18rem;
     min-width: 18rem;
 }
+html.is-tv .station-spinner {
+    width: 28px;
+    height: 28px;
+    border-width: 3px;
+}
+html.is-tv .station-fail { font-size: 1.15rem; }
+html.is-tv .status-line { font-size: 1.25rem; }
 html.is-tv .mini-player {
     height: auto;
     min-height: 88px;

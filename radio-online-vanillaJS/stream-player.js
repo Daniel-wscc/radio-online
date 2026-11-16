@@ -18,6 +18,7 @@
     StreamPlayer.prototype.notify = function (phase) {
         this.options.onState({
             phase: phase,
+            targetId: this.target ? this.target.id : '',
             targetName: this.target ? this.target.name : '',
             activeName: this.active ? this.active.station.name : '',
             audio: this.active ? this.active.audio : null
@@ -47,7 +48,7 @@
 
     StreamPlayer.prototype.select = function (station) {
         var url = station.url_resolved || station.url;
-        if (this.target && this.target.url === url && (this.pending || this.retryAt)) return;
+        if (this.target && this.target.url === url && this.pending) return;
         var previousPending = this.pending;
         this.pending = null;
         this.dispose(previousPending);

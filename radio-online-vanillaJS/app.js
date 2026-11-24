@@ -306,8 +306,13 @@ function isDarkThemeName(name) {
 function syncYoutubeVolume() {
     try {
         var currentVolume = getSavedVolume();
-        var wanted = Math.round(currentVolume * 100);
+        var wanted = youtubeTargetVolume();
         if (!youtubePlayer || typeof youtubePlayer.setVolume !== 'function') return;
+        if (youtubeVolumeIsHeld()) {
+            applyYoutubeVolumeMuted();
+            logYoutubeVolume('sync-hold');
+            return;
+        }
         var actual = typeof youtubePlayer.getVolume === 'function' ? youtubePlayer.getVolume() : null;
         var muted = typeof youtubePlayer.isMuted === 'function' ? !!youtubePlayer.isMuted() : null;
         var volumeOk = actual === null || actual === wanted;
@@ -319,9 +324,124 @@ function syncYoutubeVolume() {
         } else if (typeof youtubePlayer.unMute === 'function') {
             youtubePlayer.unMute();
         }
+        logYoutubeVolume('sync');
     } catch (error) {
         console.error('同步音量失敗:', error);
     }
+}
+
+var youtubeVolumeTimers = [];
+var youtubeVolumeHold = false;
+var youtubeVolumeHoldToken = 0;
+var youtubeVolumeHoldTimer = null;
+var youtubeVolumeHoldStarted = 0;
+var youtubeVolumeHeardPlaying = false;
+
+function youtubeVolumeIsHeld() {
+    return typeof youtubeVolumeHold !== 'undefined' && !!youtubeVolumeHold;
+}
+
+function youtubeTargetVolume() {
+    var current = 1;
+    try { current = getSavedVolume(); } catch (error) { current = 1; }
+    if (typeof current !== 'number' || isNaN(current)) current = 1;
+    if (current < 0) current = 0;
+    if (current > 1) current = 1;
+    return Math.round(current * 100);
+}
+
+function logYoutubeVolume(reason) {
+    var actual = null;
+    var muted = null;
+    var state = null;
+    try {
+        if (youtubePlayer && typeof youtubePlayer.getVolume === 'function') actual = youtubePlayer.getVolume();
+        if (youtubePlayer && typeof youtubePlayer.isMuted === 'function') muted = !!youtubePlayer.isMuted();
+        if (youtubePlayer && typeof youtubePlayer.getPlayerState === 'function') state = youtubePlayer.getPlayerState();
+    } catch (error) {}
+    radioDebug('yt-vol', {
+        reason: reason,
+        target: youtubeTargetVolume(),
+        getVolume: actual,
+        isMuted: muted,
+        state: state,
+        hold: youtubeVolumeIsHeld(),
+        t: Date.now()
+    });
+}
+
+function applyYoutubeVolumeMuted() {
+    var wanted = youtubeTargetVolume();
+    if (!youtubePlayer) return;
+    try {
+        if (typeof youtubePlayer.mute === 'function') youtubePlayer.mute();
+        if (typeof youtubePlayer.setVolume === 'function') youtubePlayer.setVolume(wanted);
+    } catch (error) {}
+}
+
+function youtubeVolumeMatches() {
+    var actual;
+    if (!youtubePlayer || typeof youtubePlayer.getVolume !== 'function') return false;
+    try { actual = youtubePlayer.getVolume(); } catch (error) { return false; }
+    return typeof actual === 'number' && !isNaN(actual) && actual === youtubeTargetVolume();
+}
+
+function releaseYoutubeVolumeHold() {
+    var wanted = youtubeTargetVolume();
+    youtubeVolumeHold = false;
+    if (typeof youtubeVolumeHoldTimer !== 'undefined' && youtubeVolumeHoldTimer) {
+        clearTimeout(youtubeVolumeHoldTimer);
+        youtubeVolumeHoldTimer = null;
+    }
+    try {
+        if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') youtubePlayer.setVolume(wanted);
+        if (wanted === 0) {
+            if (youtubePlayer && typeof youtubePlayer.mute === 'function') youtubePlayer.mute();
+        } else if (youtubePlayer && typeof youtubePlayer.unMute === 'function') {
+            youtubePlayer.unMute();
+        }
+    } catch (error) {}
+    logYoutubeVolume('release');
+}
+
+function tickYoutubeVolumeHold() {
+    var elapsed;
+    if (!youtubeVolumeIsHeld()) return;
+    applyYoutubeVolumeMuted();
+    if (typeof youtubeVolumeHoldStarted !== 'number') youtubeVolumeHoldStarted = Date.now();
+    elapsed = Date.now() - youtubeVolumeHoldStarted;
+    if (youtubeVolumeHeardPlaying && youtubeVolumeMatches()) {
+        releaseYoutubeVolumeHold();
+        return;
+    }
+    if (elapsed >= 2000) {
+        releaseYoutubeVolumeHold();
+        return;
+    }
+    youtubeVolumeHoldTimer = setTimeout(tickYoutubeVolumeHold, 50);
+}
+
+function beginYoutubeVolumeHold() {
+    youtubeVolumeHold = true;
+    youtubeVolumeHeardPlaying = false;
+    youtubeVolumeHoldStarted = Date.now();
+    if (typeof youtubeVolumeHoldToken !== 'number') youtubeVolumeHoldToken = 0;
+    youtubeVolumeHoldToken += 1;
+    if (typeof youtubeVolumeHoldTimer !== 'undefined' && youtubeVolumeHoldTimer) {
+        clearTimeout(youtubeVolumeHoldTimer);
+        youtubeVolumeHoldTimer = null;
+    }
+    applyYoutubeVolumeMuted();
+    logYoutubeVolume('hold');
+    youtubeVolumeHoldTimer = setTimeout(tickYoutubeVolumeHold, 50);
+}
+
+function noteYoutubeVolumeState(playerState) {
+    if (!youtubeVolumeIsHeld()) return false;
+    if (playerState === 1) youtubeVolumeHeardPlaying = true;
+    applyYoutubeVolumeMuted();
+    logYoutubeVolume('state');
+    return true;
 }
 
 var youtubeVolumeTimers = [];
@@ -413,7 +533,15 @@ function resumeYoutubeFromBackground() {
     if (youtubeReachedEnd()) return;
     if (!youtubePlayer || typeof youtubePlayer.playVideo !== 'function') return;
     var player = youtubePlayer;
-    var wanted = Math.round(getSavedVolume() * 100);
+    if (typeof youtubeVolumeHold !== 'undefined' && youtubeVolumeHold) {
+        if (typeof applyYoutubeVolumeMuted === 'function') applyYoutubeVolumeMuted();
+        player.playVideo();
+        if (typeof applyYoutubeVolumeMuted === 'function') applyYoutubeVolumeMuted();
+        return;
+    }
+    var wanted = 100;
+    try { wanted = Math.round(getSavedVolume() * 100); } catch (error) { wanted = 100; }
+    if (isNaN(wanted)) wanted = 100;
     if (typeof player.setVolume === 'function') player.setVolume(wanted);
     syncYoutubeVolume();
     player.playVideo();
@@ -567,20 +695,17 @@ function enableRadioDebug() {
 function loadYoutubeVideoNow(player, videoId) {
     if (!player || typeof player.loadVideoById !== 'function' || !videoId) return;
     markYoutubePlaybackWanted();
-    var wanted = Math.round(getSavedVolume() * 100);
+    beginYoutubeVolumeHold();
+    var wanted = youtubeTargetVolume();
     if (typeof player.mute === 'function') player.mute();
     if (typeof player.setVolume === 'function') player.setVolume(wanted);
     player.loadVideoById(videoId);
+    if (typeof player.mute === 'function') player.mute();
     if (typeof player.setVolume === 'function') player.setVolume(wanted);
     if (typeof player.playVideo === 'function') player.playVideo();
+    if (typeof player.mute === 'function') player.mute();
     if (typeof player.setVolume === 'function') player.setVolume(wanted);
-    if (wanted === 0) {
-        if (typeof player.mute === 'function') player.mute();
-    } else if (typeof player.unMute === 'function') {
-        player.unMute();
-    }
-    syncYoutubeVolume();
-    armYoutubeVolumeChecks();
+    logYoutubeVolume('load');
 }
 
 // DOM 元素
@@ -1331,10 +1456,9 @@ function handleStateUpdate(state) {
             } else if (youtubePlayer && newVideoId && youtubePlayer.getPlayerState &&
                 youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
                 markYoutubePlaybackWanted();
-                syncYoutubeVolume();
+                beginYoutubeVolumeHold();
                 if (youtubePlayer.playVideo) youtubePlayer.playVideo();
-                syncYoutubeVolume();
-                armYoutubeVolumeChecks();
+                applyYoutubeVolumeMuted();
             } else if (!videoActuallyChanged) {
                 console.log('影片未改變，跳過重新載入:', {
                     videoId: newVideoId,
@@ -1497,7 +1621,8 @@ function getYoutubePlayerVars() {
     var playerVars = {
         'playsinline': 1,
         'enablejsapi': 1,
-        'rel': 0
+        'rel': 0,
+        'mute': 1
     };
     var origin = getYoutubeOrigin();
     if (origin) playerVars.origin = origin;
@@ -1673,10 +1798,7 @@ function onPlayerReady(event) {
         }
     };
 
-    // 設置初始音量
-    syncYoutubeVolume();
-
-    // 如果有待播放的視頻，先把音量設好再立刻播放
+    // 有影片要載入時由換片流程保持靜音，確認音量後才開聲。
     if (currentVideoIndex !== -1 && playlist[currentVideoIndex]) {
         try {
             loadYoutubeVideoNow(event.target, playlist[currentVideoIndex].id);
@@ -1686,6 +1808,8 @@ function onPlayerReady(event) {
     } else if (playlist.length > 0) {
         console.log('自動播放第一首影片');
         playYoutubeIndex(0);
+    } else {
+        syncYoutubeVolume();
     }
 }
 
@@ -2219,12 +2343,16 @@ function onPlayerStateChange(event) {
         time: youtubePlayer && youtubePlayer.getCurrentTime ? youtubePlayer.getCurrentTime() : null,
         id: readYoutubeVideoId()
     });
-    if (states && (playerState === states.UNSTARTED || playerState === states.BUFFERING || playerState === states.PLAYING)) {
-        syncYoutubeVolume();
-        armYoutubeVolumeChecks();
-    } else if (playerState === -1 || playerState === 3 || playerState === 1) {
-        syncYoutubeVolume();
-        armYoutubeVolumeChecks();
+    var watchVolume = playingNow || playerState === -1 || playerState === 3 ||
+        (states && (playerState === states.UNSTARTED || playerState === states.BUFFERING));
+    if (!(watchVolume && noteYoutubeVolumeState(playingNow ? 1 : playerState))) {
+        if (states && (playerState === states.UNSTARTED || playerState === states.BUFFERING || playerState === states.PLAYING)) {
+            syncYoutubeVolume();
+            armYoutubeVolumeChecks();
+        } else if (playerState === -1 || playerState === 3 || playerState === 1) {
+            syncYoutubeVolume();
+            armYoutubeVolumeChecks();
+        }
     }
     if (pausedNow) {
         if (!youtubePauseIsIntentional() && youtubeReachedEnd()) {

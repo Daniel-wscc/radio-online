@@ -10,7 +10,10 @@ const names = [
     'syncYoutubeVolume', 'armYoutubeVolumeChecks', 'loadYoutubeVideoNow', 'onPlayerStateChange',
     'markYoutubePlaybackWanted', 'markYoutubePlaybackPaused', 'youtubePauseIsIntentional',
     'youtubeShouldResume', 'resumeYoutubeFromBackground', 'noteUnexpectedYoutubePause',
-    'onYoutubeVisibilityChange', 'youtubeReachedEnd', 'readYoutubeVideoId', 'radioDebug'
+    'onYoutubeVisibilityChange', 'youtubeReachedEnd', 'readYoutubeVideoId', 'radioDebug',
+    'youtubeVolumeIsHeld', 'youtubeTargetVolume', 'logYoutubeVolume', 'applyYoutubeVolumeMuted',
+    'youtubeVolumeMatches', 'releaseYoutubeVolumeHold', 'tickYoutubeVolumeHold',
+    'beginYoutubeVolumeHold', 'noteYoutubeVolumeState'
 ];
 const code = ast.statements.filter(function (node) {
     return ts.isFunctionDeclaration(node) && names.indexOf(node.name.text) !== -1;
@@ -45,6 +48,7 @@ function run(saved, player) {
         youtubePauseIntent: null,
         youtubeResumeCount: 0,
         isYoutubeMode: true,
+        Date: Date,
         setTimeout: function (fn, ms) { timers.push(ms); return timers.length; },
         clearTimeout: function () {},
         updatePlayPauseButton: function () {},
@@ -59,19 +63,44 @@ function run(saved, player) {
     return { context: context, timers: timers, player: player };
 }
 
-test('換歌時先靜音，載入重設成 100 後會立刻設回儲存音量再出聲', () => {
+test('換歌時先保持靜音，音量確認且開始播放後才出聲', () => {
     const player = new FakePlayer();
     const env = run(0.4, player);
     env.context.loadYoutubeVideoNow(player, 'abcdefghijk');
     const loadAt = player.log.indexOf('load:abcdefghijk');
     assert.ok(loadAt > 0);
-    assert.equal(player.log[loadAt - 1], 'set:40');
     assert.equal(player.log[0], 'mute');
     assert.ok(player.log.indexOf('play') > loadAt);
-    assert.equal(player.log[loadAt + 1], 'set:40');
+    assert.equal(player.muted, true);
+    assert.equal(player.log.indexOf('unmute'), -1);
+    env.context.youtubeVolumeHeardPlaying = true;
+    env.context.tickYoutubeVolumeHold();
     assert.equal(player.volume, 40);
     assert.equal(player.muted, false);
-    assert.deepEqual(env.timers, [0, 250, 750, 1500]);
+});
+
+test('YouTube 仍回報 100 時不開聲，音量跟上後才開聲', () => {
+    const player = new FakePlayer();
+    player.blockVolume = true;
+    const realSet = player.setVolume;
+    player.setVolume = function (value) {
+        this.log.push('set:' + value);
+        if (this.blockVolume) return;
+        this.volume = value;
+    };
+    const env = run(0.4, player);
+    env.context.loadYoutubeVideoNow(player, 'abcdefghijk');
+    player.volume = 100;
+    player.muted = false;
+    env.context.youtubeVolumeHeardPlaying = true;
+    env.context.tickYoutubeVolumeHold();
+    assert.equal(player.muted, true);
+    assert.equal(player.log.indexOf('unmute'), -1);
+    player.blockVolume = false;
+    env.context.tickYoutubeVolumeHold();
+    assert.equal(player.volume, 40);
+    assert.equal(player.muted, false);
+    assert.match(fs.readFileSync('radio-online-vanillaJS/app.js', 'utf8'), /'mute':\s*1/);
 });
 
 test('儲存音量為 0 時換歌保持靜音', () => {

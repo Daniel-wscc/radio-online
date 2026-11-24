@@ -5,11 +5,16 @@ import cors from 'cors';
 import { instrument } from '@socket.io/admin-ui';
 import Database from 'better-sqlite3';
 import fs from 'fs';
+import path from 'path';
+import { createRadioStore, attachRadioSync } from './radio-sync.cjs';
+import { expandYoutubePlaylist } from './youtube-playlist.cjs';
+import { attachHitFmRoutes } from './hitfm-proxy.cjs';
 
 console.log('=== 正在啟動 radio-online-server 1.0.3 ===');
 
-// 確保資料目錄存在
-const dataDir = '/app/data';
+// 確保資料目錄存在。測試可透過 RADIO_DB_PATH 指向暫存檔。
+const dbFile = process.env.RADIO_DB_PATH || '/app/data/radio.db';
+const dataDir = path.dirname(dbFile);
 if (!fs.existsSync(dataDir)) {
   console.log(`建立資料目錄: ${dataDir}`);
   fs.mkdirSync(dataDir, { recursive: true });
@@ -24,6 +29,7 @@ const ALLOWED_ORIGINS = [
   "http://192.168.11.125:4200",
   "https://demo.wscc1031.synology.me",
   "https://radio.wscc1031.synology.me",
+  "https://test.wscc1031.synology.me",
   "https://admin.socket.io"
 ];
 
@@ -35,6 +41,7 @@ const CORS_OPTIONS = {
 };
 
 app.use(cors(CORS_OPTIONS));
+attachHitFmRoutes(app);
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -173,39 +180,10 @@ instrument(io, {
   mode: process.env['NODE_ENV'] === 'production' ? 'production' : 'development',
 });
 
-let currentRadioState = {
-  isPlaying: false,
-  volume: 1,
-  youtubeState: {
-    playlist: [] as any[],
-    currentIndex: -1,
-    currentVideoId: null as string | null,
-    isYoutubeMode: false
-  }
-};
-
-// 添加線上人數計數
-let onlineUsers = 0;
-
-// 添加防護機制，避免重複清除
-let lastClearTime = 0;
-const CLEAR_COOLDOWN = 1000; // 1秒冷卻時間
-
-// 添加清除操作保護機制
-let isPlaylistClearing = false;
-let clearProtectionTimer: ReturnType<typeof setTimeout> | null = null;
-const CLEAR_PROTECTION_TIME = 3000; // 3秒保護時間
-
 interface ChatMessage {
   userName: string;
   message: string;
   timestamp: number;
-}
-
-interface YoutubeStateFromDB {
-  currentIndex: number;
-  currentVideoId: string | null;
-  isYoutubeMode: number;
 }
 
 interface PlaylistFromDB {
@@ -226,7 +204,7 @@ interface PlaylistItemFromDB {
 }
 
 // 初始化 SQLite 資料庫
-const db = new Database('/app/data/radio.db');
+const db = new Database(dbFile);
 db.exec(`CREATE TABLE IF NOT EXISTS playlist (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   videoId TEXT NOT NULL,
@@ -272,282 +250,30 @@ const initYoutubeState = db.prepare(`
 `);
 initYoutubeState.run(Date.now());
 
+const radioStore = createRadioStore(db);
+attachRadioSync(io, radioStore);
+
 io.on('connection', (socket) => {
-  // 更新線上人數
-  onlineUsers++;
-  console.log('使用者連接，當前線上人數:', onlineUsers);
-  io.emit('onlineUsers', onlineUsers);
-
-  // 從資料庫載入 YouTube 狀態和播放清單並發送當前狀態給新連接的使用者
-  try {
-    const getYoutubeState = db.prepare('SELECT currentIndex, currentVideoId, isYoutubeMode FROM youtube_state WHERE id = 1');
-    const youtubeStateFromDB = getYoutubeState.get() as YoutubeStateFromDB | undefined;
-
-    const select = db.prepare('SELECT videoId, title FROM playlist ORDER BY addedAt ASC');
-    const playlist = select.all();
-
-    const formattedPlaylist = playlist.map((item: any) => ({
-      id: item.videoId,
-      title: item.title || item.videoId
-    }));
-
-    if (youtubeStateFromDB) {
-      currentRadioState.youtubeState.playlist = formattedPlaylist;
-      currentRadioState.youtubeState.currentIndex = youtubeStateFromDB.currentIndex;
-      currentRadioState.youtubeState.currentVideoId = youtubeStateFromDB.currentVideoId;
-      currentRadioState.youtubeState.isYoutubeMode = youtubeStateFromDB.isYoutubeMode === 1;
-    }
-  } catch (error) {
-    console.error('從資料庫載入 YouTube 狀態時發生錯誤:', error);
-  }
-
-  socket.emit('radioStateUpdate', currentRadioState);
-
-  // 處理請求當前狀態
-  socket.on('requestCurrentState', () => {
-    socket.emit('radioStateUpdate', currentRadioState);
-    socket.emit('onlineUsers', onlineUsers);
-  });
-
-  // 處理請求線上人數
-  socket.on('requestOnlineUsers', () => {
-    socket.emit('onlineUsers', onlineUsers);
-  });
-
-  // 處理狀態更新
-  socket.on('updateRadioState', (state) => {
-    // 檢查是否在清除操作保護期內
-    if (isPlaylistClearing) {
-      // 只更新非播放清單相關的狀態
-      currentRadioState = {
-        ...currentRadioState,
-        ...state,
-        youtubeState: state.youtubeState ? {
-          ...currentRadioState.youtubeState,
-          ...state.youtubeState,
-          playlist: currentRadioState.youtubeState.playlist
-        } : currentRadioState.youtubeState
-      };
-    } else {
-      currentRadioState = {
-        ...currentRadioState,
-        ...state,
-        youtubeState: state.youtubeState ? {
-          ...currentRadioState.youtubeState,
-          ...state.youtubeState,
-          playlist: state.youtubeState.hasOwnProperty('playlist')
-            ? state.youtubeState.playlist
-            : currentRadioState.youtubeState.playlist
-        } : currentRadioState.youtubeState
-      };
-    }
-
-    // 如果有 YouTube 狀態，保存到資料庫
-    if (state.youtubeState) {
-      try {
-        const updateYoutubeState = db.prepare(`
-          UPDATE youtube_state
-          SET currentIndex = ?, currentVideoId = ?, isYoutubeMode = ?, updatedAt = ?
-          WHERE id = 1
-        `);
-        updateYoutubeState.run(
-          state.youtubeState.currentIndex || -1,
-          state.youtubeState.currentVideoId || null,
-          state.youtubeState.isYoutubeMode ? 1 : 0,
-          Date.now()
-        );
-      } catch (error) {
-        console.error('更新 YouTube 狀態到資料庫時發生錯誤:', error);
-      }
-    }
-
-    // 廣播給所有其他使用者
-    socket.broadcast.emit('radioStateUpdate', currentRadioState);
-  });
-
-  // 處理聊天訊息
   socket.on('chatMessage', (message: ChatMessage) => {
     io.emit('newChatMessage', message);
   });
 
-  // 新增：接收 client 傳來的播放清單並寫入 sqlite
-  socket.on('addPlaylist', (playlist) => {
-    // 如果 playlist 其實是 [ [ {...}, {...} ] ]，要解開
-    if (Array.isArray(playlist) && Array.isArray(playlist[0])) {
-      playlist = playlist[0];
-    }
-
-    // 檢查播放清單是否為空
-    if (!Array.isArray(playlist) || playlist.length === 0) {
-      socket.emit('playlistAdded', { success: false, error: '播放清單為空' });
-      return;
-    }
-
-    // 檢查播放清單是否有效
-    const isValid = playlist.every((item: any) => item.id);
-
-    if (!isValid) {
-      socket.emit('playlistAdded', { success: false, error: '播放清單格式無效' });
-      return;
-    }
-
-    // 發送開始處理的訊息
-    socket.emit('playlistProcessing', {
-      status: 'started',
-      total: playlist.length,
-      message: `開始處理 ${playlist.length} 首歌曲...`
+  socket.on('expandYoutubePlaylist', (payload: { playlistId?: string; requestId?: string }) => {
+    const playlistId = payload && payload.playlistId ? String(payload.playlistId) : '';
+    const requestId = payload && payload.requestId ? String(payload.requestId) : '';
+    expandYoutubePlaylist(playlistId, {
+      onProgress: (loaded: number) => {
+        socket.emit('youtubePlaylistProgress', { requestId, loaded });
+      }
+    }).then((result) => {
+      socket.emit('youtubePlaylistExpanded', Object.assign({ requestId }, result));
+    }).catch(() => {
+      socket.emit('youtubePlaylistExpanded', {
+        requestId,
+        ok: false,
+        error: '讀取播放清單時發生錯誤。請稍後再試。'
+      });
     });
-
-    try {
-      // 使用事務來確保數據一致性
-      const transaction = db.transaction(() => {
-        const clear = db.prepare('DELETE FROM playlist');
-        clear.run();
-
-        const insert = db.prepare('INSERT INTO playlist (videoId, title, addedAt) VALUES (?, ?, ?)');
-        const now = Date.now();
-
-        const batchSize = 100;
-        for (let i = 0; i < playlist.length; i += batchSize) {
-          const batch = playlist.slice(i, i + batchSize);
-
-          for (const item of batch) {
-            insert.run(item.id, item.title || '', now);
-          }
-
-          // 發送進度更新
-          const progress = Math.min(i + batchSize, playlist.length);
-          socket.emit('playlistProcessing', {
-            status: 'progress',
-            processed: progress,
-            total: playlist.length,
-            message: `已處理 ${progress}/${playlist.length} 首歌曲`
-          });
-        }
-      });
-
-      transaction();
-
-      // 更新記憶體中的播放清單狀態
-      const formattedPlaylist = playlist.map((item: any) => ({
-        id: item.id,
-        title: item.title || item.id
-      }));
-
-      // 保存當前的播放狀態
-      const currentIndex = currentRadioState.youtubeState.currentIndex;
-      const currentVideoId = currentRadioState.youtubeState.currentVideoId;
-
-      currentRadioState.youtubeState.playlist = formattedPlaylist;
-
-      // 如果當前播放的影片不在新的播放清單中，才重置索引
-      if (currentIndex >= 0 && currentVideoId) {
-        const currentVideoStillExists = formattedPlaylist.some((item: any) => item.id === currentVideoId);
-        if (!currentVideoStillExists) {
-          currentRadioState.youtubeState.currentIndex = -1;
-          currentRadioState.youtubeState.currentVideoId = null;
-        }
-      }
-
-      // 廣播更新後的狀態給所有其他客戶端
-      socket.broadcast.emit('radioStateUpdate', currentRadioState);
-
-      socket.emit('playlistAdded', {
-        success: true,
-        message: `成功加入 ${playlist.length} 首歌曲到播放佇列`
-      });
-
-      console.log('已寫入 playlist:', playlist.length + ' 個項目');
-    } catch (error) {
-      console.error('寫入播放清單時發生錯誤:', error);
-      socket.emit('playlistAdded', {
-        success: false,
-        error: '資料庫錯誤: ' + (error instanceof Error ? error.message : String(error))
-      });
-    }
-  });
-
-  // 新增：接收 client 載入 playlist 的請求
-  socket.on('loadPlaylist', () => {
-    try {
-      const select = db.prepare('SELECT videoId, title FROM playlist ORDER BY addedAt ASC');
-      const playlist = select.all();
-
-      const getYoutubeState = db.prepare('SELECT currentIndex, currentVideoId, isYoutubeMode FROM youtube_state WHERE id = 1');
-      const youtubeStateFromDB = getYoutubeState.get() as YoutubeStateFromDB | undefined;
-
-      socket.emit('playlistLoaded', playlist);
-
-      if (youtubeStateFromDB) {
-        const formattedPlaylist = playlist.map((item: any) => ({
-          id: item.videoId,
-          title: item.title || item.videoId
-        }));
-
-        currentRadioState.youtubeState.playlist = formattedPlaylist;
-        currentRadioState.youtubeState.currentIndex = youtubeStateFromDB.currentIndex;
-        currentRadioState.youtubeState.currentVideoId = youtubeStateFromDB.currentVideoId;
-        currentRadioState.youtubeState.isYoutubeMode = youtubeStateFromDB.isYoutubeMode === 1;
-
-        socket.emit('radioStateUpdate', currentRadioState);
-      }
-    } catch (error) {
-      console.error('從資料庫載入 playlist 時發生錯誤:', error);
-      socket.emit('playlistLoaded', { error: '無法載入播放清單' });
-    }
-  });
-
-  // 新增：接收 client 清除播放清單的請求
-  socket.on('clearPlaylist', () => {
-    const now = Date.now();
-
-    // 檢查冷卻時間，避免重複清除
-    if (now - lastClearTime < CLEAR_COOLDOWN) {
-      socket.emit('playlistCleared', { success: false, error: '請稍後再試' });
-      return;
-    }
-
-    lastClearTime = now;
-
-    // 設置清除操作保護期（先清除舊的 timer）
-    if (clearProtectionTimer) {
-      clearTimeout(clearProtectionTimer);
-    }
-    isPlaylistClearing = true;
-    clearProtectionTimer = setTimeout(() => {
-      isPlaylistClearing = false;
-      clearProtectionTimer = null;
-    }, CLEAR_PROTECTION_TIME);
-
-    try {
-      const clear = db.prepare('DELETE FROM playlist');
-      clear.run();
-
-      currentRadioState.youtubeState.playlist = [];
-      currentRadioState.youtubeState.currentIndex = -1;
-      currentRadioState.youtubeState.currentVideoId = null;
-
-      const updateYoutubeState = db.prepare(`
-        UPDATE youtube_state
-        SET currentIndex = -1, currentVideoId = NULL, updatedAt = ?
-        WHERE id = 1
-      `);
-      updateYoutubeState.run(Date.now());
-
-      // 廣播更新後的狀態給所有客戶端
-      io.emit('radioStateUpdate', {
-        ...currentRadioState,
-        youtubeState: {
-          ...currentRadioState.youtubeState,
-          playlist: []
-        }
-      });
-
-      socket.emit('playlistCleared', { success: true });
-    } catch (error) {
-      console.error('清除資料庫播放清單時發生錯誤:', error);
-      socket.emit('playlistCleared', { success: false, error: '無法清除播放清單' });
-    }
   });
 
   // 播放清單管理相關事件
@@ -692,13 +418,9 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
-    onlineUsers--;
-    console.log('使用者斷開連接，當前線上人數:', onlineUsers);
-    io.emit('onlineUsers', onlineUsers);
-  });
 });
 
-httpServer.listen(1034, () => {
-  console.log('伺服器運行在 port 1034');
+const port = Number(process.env.PORT || 1034);
+httpServer.listen(port, () => {
+  console.log('伺服器運行在 port ' + port);
 });

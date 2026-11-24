@@ -26,7 +26,7 @@ var customStations = [
     },
     {
         name: 'Hit FM台北之音廣播',
-        url: 'https://m3u8-proxy.wscc1031.synology.me/fetch/?url=http://202.39.43.67:1935/live/RA000036/chunklist.m3u8',
+        url: String(window.RADIO_SOCKET_URL || 'https://radio.wscc1031.synology.me').replace(/\/$/, '') + '/stream/hitfm.m3u8',
         tags: ['music'],
         id: 'custom_5'
     },
@@ -70,13 +70,33 @@ var youtubePlayerReady = false;
 var youtubePlayerReadyTimer = null;
 var youtubeApiMaxAttempts = 3;
 var youtubeApiUrl = 'https://www.youtube.com/iframe_api';
-var socket = io('https://radio.wscc1031.synology.me');
+var socket = io(window.RADIO_SOCKET_URL || 'https://radio.wscc1031.synology.me');
 var isDarkMode = false;
+var isMuted = false;
+var volumeBeforeMute = 1;
+var darkThemeNames = ['dark', 'synthwave', 'forest', 'coffee', 'dracula'];
 // 本地重排/同步期間，短暫忽略遠端索引更新
 var suppressIndexUpdatesUntil = 0;
 
 var radioStreamPlayer = null;
 var radioPlaybackPhase = 'idle';
+var stationStatus = window.StationStatus ? window.StationStatus.create() : null;
+
+function paintStationLoadMarks() {
+    if (!stationStatus || !document.querySelectorAll) return;
+    var view = stationStatus.view();
+    var items = document.querySelectorAll('.station-item[data-station-id]');
+    var i;
+    for (i = 0; i < items.length; i++) {
+        var id = items[i].getAttribute('data-station-id');
+        var slot = items[i].querySelector('[data-station-state]');
+        if (!slot) continue;
+        var html = '';
+        if (view.loadingId === id) html += '<span class="station-spinner" aria-hidden="true"></span>';
+        if (view.failed[id]) html += '<span class="station-fail">無法播放</span>';
+        if (slot.innerHTML !== html) slot.innerHTML = html;
+    }
+}
 
 function startRadioTransition(station) {
     if (!radioStreamPlayer) {
@@ -86,23 +106,27 @@ function startRadioTransition(station) {
             onState: function (state) {
                 radioPlaybackPhase = state.phase;
                 if (state.audio) audioPlayer = state.audio;
+                if (stationStatus && state.targetId) {
+                    stationStatus.apply({ phase: state.phase, stationId: state.targetId });
+                    paintStationLoadMarks();
+                }
                 var status = document.getElementById('radioLoadStatus');
                 var retry = document.getElementById('radioRetryButton');
                 var message = '';
-                if (state.phase === 'loading' || state.phase === 'retrying') {
-                    message = (state.phase === 'retrying' ? '正在重新載入 ' : '正在載入 ') + state.targetName + '…';
-                    if (state.activeName) message += ' 就緒前保留 ' + state.activeName + ' 的播放。';
-                } else if (state.phase === 'blocked') {
-                    message = '此裝置尚未允許播放，請按「重試播放」。';
-                } else if (state.phase === 'playing') {
-                    message = '本裝置播放中：' + state.activeName;
+                if (state.phase === 'loading') message = '載入中…';
+                else if (state.phase === 'retrying') message = '無法播放';
+                else if (state.phase === 'blocked') message = '此裝置尚未允許播放，請按「重試播放」。';
+                if (status) {
+                    status.textContent = message;
+                    status.hidden = !message;
+                    if (state.phase === 'retrying') status.className = 'status-line is-error';
+                    else status.className = 'status-line';
                 }
-                status.textContent = message;
-                status.hidden = !message;
-                retry.hidden = state.phase !== 'blocked';
+                if (retry) retry.hidden = state.phase !== 'blocked';
             }
         });
     }
+    // 先套用遠端或本機音量，再開始載入新電台，避免重新整理時新串流以 100% 起播。
     radioStreamPlayer.setVolume(getSavedVolume());
     radioStreamPlayer.select(station);
 }
@@ -158,20 +182,587 @@ function restorePlaybackSnapshot(snapshot) {
 var wasFullscreen = false;
 
 // 共用：確保 YouTube 播放器音量與滑桿一致
-function syncYoutubeVolume() {
+var playerExpanded = false;
+
+function placeNode(nodeId, hostId) {
+    var node = document.getElementById(nodeId);
+    var host = document.getElementById(hostId);
+    if (!node || !host || node.parentNode === host) return;
+    host.appendChild(node);
+}
+
+function updateMiniTitle() {
+    var text = '請添加影片到播放清單';
+    if (playlist.length && currentVideoIndex >= 0 && playlist[currentVideoIndex]) {
+        text = playlist[currentVideoIndex].title || playlist[currentVideoIndex].id;
+    } else if (playlist.length) {
+        text = '請選擇要播放的影片';
+    }
+    var mini = document.getElementById('miniPlayerTitle');
+    var expanded = document.getElementById('expandedVideoTitle');
+    if (mini) mini.textContent = text;
+    if (expanded) expanded.textContent = text;
+}
+
+function ensureYoutubeFrameHost() {
+    var frame = document.getElementById('ytFrame');
+    var section = document.getElementById('youtubeSection');
+    if (!frame || !section || frame.parentNode === section) return;
+    section.appendChild(frame);
+}
+
+function layoutYoutubeFrame() {
+    var frame = document.getElementById('ytFrame');
+    if (!frame) return;
+    ensureYoutubeFrameHost();
+    if (!isYoutubeMode) {
+        frame.style.display = 'none';
+        return;
+    }
+    var anchor = document.getElementById('ytStage');
+    if (playerExpanded && playlist.length) anchor = document.getElementById('videoTarget');
+    else if (playlist.length) anchor = document.getElementById('miniThumbSlot');
+    if (!anchor || typeof anchor.getBoundingClientRect !== 'function') return;
+    var rect = anchor.getBoundingClientRect();
+    if (!(rect.width > 0) || !(rect.height > 0)) return;
+    frame.style.display = 'block';
+    frame.style.position = 'fixed';
+    frame.style.margin = '0';
+    frame.style.left = rect.left + 'px';
+    frame.style.top = rect.top + 'px';
+    frame.style.width = Math.round(rect.width) + 'px';
+    frame.style.height = Math.round(rect.height) + 'px';
+    frame.style.zIndex = playerExpanded ? '41' : '32';
+    frame.style.overflow = 'hidden';
+    if (youtubePlayer && typeof youtubePlayer.setSize === 'function') {
+        try {
+            youtubePlayer.setSize(Math.round(rect.width), Math.round(rect.height));
+        } catch (error) {
+            console.log('調整 YouTube 尺寸失敗:', error);
+        }
+    }
+    radioDebug('layout', { w: Math.round(rect.width), h: Math.round(rect.height), expanded: !!playerExpanded });
+}
+
+function syncYoutubeChrome() {
+    if (!isYoutubeMode || playlist.length === 0) playerExpanded = false;
+    var expanded = playerExpanded && isYoutubeMode;
+    var section = document.getElementById('youtubeSection');
+    var bar = document.getElementById('playerBar');
+    var stage = document.getElementById('radioStage');
+    if (section) {
+        section.classList.toggle('has-queue', isYoutubeMode && playlist.length > 0);
+        section.classList.toggle('is-expanded', expanded);
+    }
+    if (bar) bar.hidden = !(isYoutubeMode && playlist.length > 0) || expanded;
+    if (stage) stage.style.display = isYoutubeMode ? 'none' : '';
+    placeNode('playbackControls', expanded ? 'expandedControlsHost' : 'miniControlsHost');
+    placeNode('playlistContainer', expanded ? 'expandedQueueHost' : 'queueHost');
+    layoutYoutubeFrame();
+    updateMiniTitle();
+}
+
+function setPlayerExpanded(open) {
+    playerExpanded = !!open && isYoutubeMode && playlist.length > 0;
+    syncYoutubeChrome();
+}
+
+function placeVolumeControl() {
+    var control = document.getElementById('volumeControl');
+    var host = document.getElementById(isYoutubeMode ? 'youtubeVolumeHost' : 'radioVolumeHost');
+    if (control && host && control.parentNode !== host) host.appendChild(control);
+    if (typeof syncYoutubeChrome === 'function') syncYoutubeChrome();
+}
+
+function escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function currentUserName() {
+    try {
+        return localStorage.getItem('userName') || '訪客';
+    } catch (error) {
+        return '訪客';
+    }
+}
+
+function announcePlayback(text) {
+    if (window.isTv || !window.PcChat || typeof window.PcChat.system !== 'function') return;
+    window.PcChat.system(text);
+}
+
+function isDarkThemeName(name) {
+    var i;
+    for (i = 0; i < darkThemeNames.length; i++) {
+        if (darkThemeNames[i] === name) return true;
+    }
+    return false;
+}
+
+function syncYoutubeVolume(force) {
     try {
         var currentVolume = getSavedVolume();
-        if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-            youtubePlayer.setVolume(currentVolume * 100);
-            if (currentVolume === 0) {
-                youtubePlayer.mute();
-            } else {
-                youtubePlayer.unMute();
-            }
+        var wanted = typeof youtubeTargetVolume === 'function' ? youtubeTargetVolume() : Math.round(currentVolume * 100);
+        if (!youtubePlayer || typeof youtubePlayer.setVolume !== 'function') return;
+        if (typeof youtubeVolumeIsHeld === 'function' && youtubeVolumeIsHeld()) {
+            applyYoutubeVolumeMuted();
+            if (typeof logYoutubeVolume === 'function') logYoutubeVolume('sync-hold');
+            return;
         }
+        var actual = typeof youtubePlayer.getVolume === 'function' ? youtubePlayer.getVolume() : null;
+        var muted = typeof youtubePlayer.isMuted === 'function' ? !!youtubePlayer.isMuted() : null;
+        var volumeOk = actual === null || actual === wanted;
+        var muteOk = currentVolume === 0 ? (muted === null || muted === true) : (muted === null || muted === false);
+        if (!force && actual !== null && volumeOk && muteOk) return;
+        youtubePlayer.setVolume(wanted);
+        if (currentVolume === 0) {
+            if (typeof youtubePlayer.mute === 'function') youtubePlayer.mute();
+        } else if (typeof youtubePlayer.unMute === 'function') {
+            youtubePlayer.unMute();
+        }
+        if (typeof logYoutubeVolume === 'function') logYoutubeVolume(force ? 'sync-force' : 'sync');
     } catch (error) {
         console.error('同步音量失敗:', error);
     }
+}
+
+var youtubeVolumeTimers = [];
+var youtubeVolumeHold = false;
+var youtubeVolumeHoldToken = 0;
+var youtubeVolumeHoldTimer = null;
+var youtubeVolumeHoldStarted = 0;
+var youtubeVolumeHeardCued = false;
+var youtubeVolumeHeardPlaying = false;
+var youtubeVolumePlaybackStarted = false;
+var youtubeVolumeConfirmCount = 0;
+var youtubeCueVideoId = null;
+
+function youtubeVolumeIsHeld() {
+    return typeof youtubeVolumeHold !== 'undefined' && !!youtubeVolumeHold;
+}
+
+function youtubeTargetVolume() {
+    var current = 1;
+    try { current = getSavedVolume(); } catch (error) { current = 1; }
+    if (typeof current !== 'number' || isNaN(current)) current = 1;
+    if (current < 0) current = 0;
+    if (current > 1) current = 1;
+    return Math.round(current * 100);
+}
+
+function youtubeVideoMatchesTarget() {
+    var currentId;
+    if (typeof youtubeCueVideoId === 'undefined' || !youtubeCueVideoId) return true;
+    currentId = typeof readYoutubeVideoId === 'function' ? readYoutubeVideoId() : null;
+    if (!currentId) return true;
+    return currentId === youtubeCueVideoId;
+}
+
+function logYoutubeVolume(reason) {
+    var actual = null;
+    var muted = null;
+    var state = null;
+    var videoId = null;
+    try {
+        if (youtubePlayer && typeof youtubePlayer.getVolume === 'function') actual = youtubePlayer.getVolume();
+        if (youtubePlayer && typeof youtubePlayer.isMuted === 'function') muted = !!youtubePlayer.isMuted();
+        if (youtubePlayer && typeof youtubePlayer.getPlayerState === 'function') state = youtubePlayer.getPlayerState();
+        if (typeof readYoutubeVideoId === 'function') videoId = readYoutubeVideoId();
+    } catch (error) {}
+    radioDebug('yt-vol', {
+        reason: reason,
+        target: youtubeTargetVolume(),
+        getVolume: actual,
+        isMuted: muted,
+        state: state,
+        videoId: videoId,
+        targetId: typeof youtubeCueVideoId !== 'undefined' ? youtubeCueVideoId : null,
+        hold: youtubeVolumeIsHeld(),
+        t: Date.now()
+    });
+}
+
+function applyYoutubeVolumeMuted() {
+    var wanted = youtubeTargetVolume();
+    if (!youtubePlayer) return;
+    try {
+        if (typeof youtubePlayer.mute === 'function') youtubePlayer.mute();
+        if (typeof youtubePlayer.setVolume === 'function') youtubePlayer.setVolume(wanted);
+    } catch (error) {}
+}
+
+function youtubeVolumeMatches() {
+    var actual;
+    if (!youtubePlayer || typeof youtubePlayer.getVolume !== 'function') return false;
+    try { actual = youtubePlayer.getVolume(); } catch (error) { return false; }
+    return typeof actual === 'number' && !isNaN(actual) && actual === youtubeTargetVolume();
+}
+
+function releaseYoutubeVolumeHold() {
+    var wanted = youtubeTargetVolume();
+    youtubeVolumeHold = false;
+    youtubeVolumeConfirmCount = 0;
+    if (typeof youtubeVolumeHoldTimer !== 'undefined' && youtubeVolumeHoldTimer) {
+        clearTimeout(youtubeVolumeHoldTimer);
+        youtubeVolumeHoldTimer = null;
+    }
+    try {
+        if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') youtubePlayer.setVolume(wanted);
+        if (wanted === 0) {
+            if (youtubePlayer && typeof youtubePlayer.mute === 'function') youtubePlayer.mute();
+        } else if (youtubePlayer && typeof youtubePlayer.unMute === 'function') {
+            youtubePlayer.unMute();
+        }
+    } catch (error) {}
+    logYoutubeVolume('release');
+    if (typeof armYoutubeVolumeChecks === 'function') armYoutubeVolumeChecks();
+}
+
+function tickYoutubeVolumeHold() {
+    var elapsed;
+    var videoReady;
+    var playingState;
+    if (!youtubeVolumeIsHeld()) return;
+    applyYoutubeVolumeMuted();
+    if (typeof youtubeVolumeHoldStarted !== 'number') youtubeVolumeHoldStarted = Date.now();
+    elapsed = Date.now() - youtubeVolumeHoldStarted;
+    videoReady = !!(typeof youtubeVolumeHeardCued !== 'undefined' && youtubeVolumeHeardCued) ||
+        youtubeVideoMatchesTarget();
+    if (!youtubeVolumePlaybackStarted && ((videoReady && youtubeVolumeMatches()) || elapsed >= 2000)) {
+        youtubeVolumePlaybackStarted = true;
+        try {
+            if (youtubePlayer && typeof youtubePlayer.playVideo === 'function') youtubePlayer.playVideo();
+        } catch (error) {}
+        applyYoutubeVolumeMuted();
+        logYoutubeVolume(youtubeVolumeMatches() ? 'play-muted' : 'play-muted-timeout');
+    }
+    if (!youtubeVolumeHeardPlaying && youtubeVolumePlaybackStarted && youtubeVideoMatchesTarget() &&
+        youtubePlayer && typeof youtubePlayer.getPlayerState === 'function') {
+        try {
+            playingState = youtubePlayer.getPlayerState();
+            if (playingState === 1) youtubeVolumeHeardPlaying = true;
+        } catch (error) {}
+    }
+    if (youtubeVolumePlaybackStarted && youtubeVolumeHeardPlaying && youtubeVideoMatchesTarget() && youtubeVolumeMatches()) {
+        if (typeof youtubeVolumeConfirmCount !== 'number') youtubeVolumeConfirmCount = 0;
+        youtubeVolumeConfirmCount += 1;
+        if (youtubeVolumeConfirmCount >= 2 || elapsed >= 2000) {
+            releaseYoutubeVolumeHold();
+            return;
+        }
+    } else {
+        youtubeVolumeConfirmCount = 0;
+    }
+    if (elapsed >= 8000) {
+        youtubeVolumeHoldTimer = null;
+        logYoutubeVolume('hold-timeout');
+        return;
+    }
+    youtubeVolumeHoldTimer = setTimeout(tickYoutubeVolumeHold, 50);
+}
+
+function beginYoutubeVolumeHold(videoId, usedCue) {
+    youtubeVolumeHold = true;
+    youtubeVolumeHeardCued = !usedCue;
+    youtubeVolumeHeardPlaying = false;
+    youtubeVolumePlaybackStarted = !usedCue;
+    youtubeVolumeConfirmCount = 0;
+    youtubeVolumeHoldStarted = Date.now();
+    if (videoId) youtubeCueVideoId = videoId;
+    if (typeof youtubeVolumeHoldToken !== 'number') youtubeVolumeHoldToken = 0;
+    youtubeVolumeHoldToken += 1;
+    if (typeof youtubeVolumeHoldTimer !== 'undefined' && youtubeVolumeHoldTimer) {
+        clearTimeout(youtubeVolumeHoldTimer);
+        youtubeVolumeHoldTimer = null;
+    }
+    applyYoutubeVolumeMuted();
+    logYoutubeVolume('hold');
+    youtubeVolumeHoldTimer = setTimeout(tickYoutubeVolumeHold, 50);
+}
+
+function noteYoutubeVolumeState(playerState) {
+    var matchesVideo;
+    if (!youtubeVolumeIsHeld()) return false;
+    matchesVideo = youtubeVideoMatchesTarget();
+    if (playerState === 5 && matchesVideo) youtubeVolumeHeardCued = true;
+    if (playerState === 1 && matchesVideo) youtubeVolumeHeardPlaying = true;
+    applyYoutubeVolumeMuted();
+    logYoutubeVolume('state');
+    return true;
+}
+
+var youtubeWantedPlaying = false;
+var youtubePauseIntent = null;
+var youtubeResumeCount = 0;
+var youtubeResumeTimer = null;
+var youtubeResumeEpoch = 0;
+var youtubeBlockEnded = false;
+var YOUTUBE_RESUME_MAX = 4;
+var YOUTUBE_RESUME_MS = 1000;
+
+function armYoutubeVolumeChecks() {
+    var delays = [0, 250, 750, 1500];
+    var i;
+    for (i = 0; i < youtubeVolumeTimers.length; i++) clearTimeout(youtubeVolumeTimers[i]);
+    youtubeVolumeTimers = [];
+    for (i = 0; i < delays.length; i++) {
+        youtubeVolumeTimers.push(setTimeout(function () { syncYoutubeVolume(true); }, delays[i]));
+    }
+}
+
+function markYoutubePlaybackWanted() {
+    youtubeWantedPlaying = true;
+    youtubePauseIntent = null;
+    youtubeResumeCount = 0;
+    if (youtubeResumeTimer) {
+        clearTimeout(youtubeResumeTimer);
+        youtubeResumeTimer = null;
+    }
+}
+
+function markYoutubePlaybackPaused(reason) {
+    youtubeWantedPlaying = false;
+    youtubePauseIntent = reason || 'user';
+    youtubeResumeCount = 0;
+    if (youtubeResumeTimer) {
+        clearTimeout(youtubeResumeTimer);
+        youtubeResumeTimer = null;
+    }
+}
+
+function youtubePauseIsIntentional() {
+    return youtubePauseIntent === 'user' || youtubePauseIntent === 'sync';
+}
+
+function youtubeShouldResume() {
+    if (youtubePauseIsIntentional()) return false;
+    if (!youtubeWantedPlaying) return false;
+    if (!isYoutubeMode) return false;
+    if (!playlist || !playlist.length || currentVideoIndex < 0) return false;
+    return true;
+}
+
+function youtubeReachedEnd() {
+    if (!youtubePlayer) return false;
+    try {
+        var duration = typeof youtubePlayer.getDuration === 'function' ? youtubePlayer.getDuration() : 0;
+        var current = typeof youtubePlayer.getCurrentTime === 'function' ? youtubePlayer.getCurrentTime() : 0;
+        if (typeof duration !== 'number' || typeof current !== 'number') return false;
+        if (!(duration > 1) || isNaN(duration) || isNaN(current)) return false;
+        return current >= duration - 0.75;
+    } catch (error) {
+        return false;
+    }
+}
+
+function readYoutubeVideoId() {
+    if (!youtubePlayer || typeof youtubePlayer.getVideoData !== 'function') return null;
+    try {
+        var data = youtubePlayer.getVideoData();
+        return data && data.video_id ? data.video_id : null;
+    } catch (error) {
+        return null;
+    }
+}
+
+function cancelYoutubeResume() {
+    youtubeResumeEpoch += 1;
+    youtubeResumeCount = YOUTUBE_RESUME_MAX;
+    if (youtubeResumeTimer) {
+        clearTimeout(youtubeResumeTimer);
+        youtubeResumeTimer = null;
+    }
+}
+
+function resumeYoutubeFromBackground() {
+    if (!youtubeShouldResume()) return;
+    if (youtubeReachedEnd()) return;
+    if (!youtubePlayer || typeof youtubePlayer.playVideo !== 'function') return;
+    var player = youtubePlayer;
+    if (typeof youtubeVolumeHold !== 'undefined' && youtubeVolumeHold) {
+        if (typeof applyYoutubeVolumeMuted === 'function') applyYoutubeVolumeMuted();
+        return;
+    }
+    var wanted = 100;
+    try { wanted = Math.round(getSavedVolume() * 100); } catch (error) { wanted = 100; }
+    if (isNaN(wanted)) wanted = 100;
+    if (typeof player.setVolume === 'function') player.setVolume(wanted);
+    syncYoutubeVolume();
+    player.playVideo();
+    if (typeof player.setVolume === 'function') player.setVolume(wanted);
+    if (wanted === 0) {
+        if (typeof player.mute === 'function') player.mute();
+    } else if (typeof player.unMute === 'function') {
+        player.unMute();
+    }
+    syncYoutubeVolume();
+    armYoutubeVolumeChecks();
+}
+
+function noteUnexpectedYoutubePause() {
+    if (youtubeReachedEnd()) {
+        cancelYoutubeResume();
+        advanceYoutubeFromEnd();
+        return;
+    }
+    if (!youtubeShouldResume()) return;
+    if (youtubeResumeCount >= YOUTUBE_RESUME_MAX) return;
+    youtubeResumeCount += 1;
+    if (youtubeResumeCount === 1) {
+        resumeYoutubeFromBackground();
+        ensureBackgroundKeeper();
+        return;
+    }
+    if (youtubeResumeTimer) return;
+    var epoch = youtubeResumeEpoch;
+    youtubeResumeTimer = setTimeout(function () {
+        youtubeResumeTimer = null;
+        if (epoch !== youtubeResumeEpoch) return;
+        resumeYoutubeFromBackground();
+    }, YOUTUBE_RESUME_MS);
+}
+
+function onYoutubeVisibilityChange() {
+    radioDebug('visibility', { hidden: typeof document !== 'undefined' && !!document.hidden });
+    if (typeof document !== 'undefined' && document.hidden) {
+        ensureBackgroundKeeper();
+        return;
+    }
+    clearBackgroundKeeper();
+    if (youtubeReachedEnd()) {
+        advanceYoutubeFromEnd();
+        return;
+    }
+    if (!youtubeShouldResume()) return;
+    youtubeResumeCount = 0;
+    resumeYoutubeFromBackground();
+}
+
+var youtubeBackgroundTimer = null;
+
+function clearBackgroundKeeper() {
+    if (!youtubeBackgroundTimer) return;
+    clearInterval(youtubeBackgroundTimer);
+    youtubeBackgroundTimer = null;
+}
+
+function ensureBackgroundKeeper() {
+    if (typeof setInterval !== 'function') return;
+    if (typeof document === 'undefined' || !document.hidden) return;
+    if (youtubePauseIsIntentional() || !youtubeWantedPlaying) return;
+    if (youtubeBackgroundTimer) return;
+    youtubeBackgroundTimer = setInterval(function () {
+        if (typeof document === 'undefined' || !document.hidden || youtubePauseIsIntentional() || !youtubeWantedPlaying) {
+            clearBackgroundKeeper();
+            return;
+        }
+        if (youtubeReachedEnd()) {
+            clearBackgroundKeeper();
+            advanceYoutubeFromEnd();
+            return;
+        }
+        youtubeResumeCount = 0;
+        resumeYoutubeFromBackground();
+    }, 1000);
+}
+
+function advanceYoutubeFromEnd() {
+    cancelYoutubeResume();
+    clearBackgroundKeeper();
+    if (youtubeBlockEnded) return;
+    if (!playlist || !playlist.length || currentVideoIndex < 0) return;
+    var endedId = readYoutubeVideoId();
+    var currentItem = playlist[currentVideoIndex];
+    var currentId = currentItem ? currentItem.id : null;
+    if (endedId && currentId && endedId !== currentId) {
+        radioDebug('end-skip', { endedId: endedId, currentId: currentId, index: currentVideoIndex });
+        return;
+    }
+    var nextIndex = currentVideoIndex < playlist.length - 1 ? currentVideoIndex + 1 : 0;
+    youtubeBlockEnded = true;
+    radioDebug('end-next', { from: currentVideoIndex, to: nextIndex, endedId: endedId });
+    if (typeof logYoutubeVolume === 'function') logYoutubeVolume('auto-next');
+    playYoutubeIndex(nextIndex, { fromEnd: true, fromIndex: currentVideoIndex });
+}
+
+function checkYoutubeEnd() {
+    var played = 0;
+    try {
+        played = youtubePlayer && typeof youtubePlayer.getCurrentTime === 'function' ? youtubePlayer.getCurrentTime() : 0;
+    } catch (error) {
+        played = 0;
+    }
+    if (typeof played === 'number' && played > 1) youtubeFailedPass = [];
+    if (youtubePauseIsIntentional() || !youtubeWantedPlaying) return;
+    if (youtubeBlockEnded) {
+        var current = 0;
+        try {
+            current = youtubePlayer && typeof youtubePlayer.getCurrentTime === 'function' ? youtubePlayer.getCurrentTime() : 0;
+        } catch (error) {
+            current = 0;
+        }
+        if (typeof current === 'number' && current > 0.2 && current < 1.5) youtubeBlockEnded = false;
+        return;
+    }
+    if (youtubeReachedEnd()) advanceYoutubeFromEnd();
+}
+
+var radioDebugEntries = [];
+
+function radioDebug(event, detail) {
+    var enabled = false;
+    try { enabled = !!window.__radioDebug; } catch (error) { enabled = false; }
+    if (!enabled) return;
+    var row = { t: new Date().toISOString(), event: event, detail: detail || null };
+    radioDebugEntries.push(row);
+    if (radioDebugEntries.length > 200) radioDebugEntries.shift();
+    try { console.log('[radio]', event, detail || ''); } catch (error) {}
+}
+
+function enableRadioDebug() {
+    var search = '';
+    try {
+        search = window.location && window.location.search ? window.location.search : '';
+    } catch (error) {
+        search = '';
+    }
+    try { window.__radioDebug = /(^|[?&])debug=1(&|$)/.test(search); } catch (error) {}
+    try {
+        window.radioDebugLog = function () {
+            var copy = [];
+            var i;
+            for (i = 0; i < radioDebugEntries.length; i++) copy.push(radioDebugEntries[i]);
+            return copy;
+        };
+    } catch (error) {}
+}
+
+function loadYoutubeVideoNow(player, videoId) {
+    var wanted;
+    var usedCue;
+    if (!player || !videoId) return;
+    if (typeof youtubeCueVideoId !== 'undefined' && youtubeCueVideoId === videoId && youtubeVolumeIsHeld()) {
+        applyYoutubeVolumeMuted();
+        logYoutubeVolume('skip-duplicate-load');
+        return;
+    }
+    if (typeof player.cueVideoById !== 'function' && typeof player.loadVideoById !== 'function') return;
+    usedCue = typeof player.cueVideoById === 'function';
+    youtubeCueVideoId = videoId;
+    markYoutubePlaybackWanted();
+    beginYoutubeVolumeHold(videoId, usedCue);
+    wanted = youtubeTargetVolume();
+    if (typeof player.mute === 'function') player.mute();
+    if (typeof player.setVolume === 'function') player.setVolume(wanted);
+    if (usedCue) player.cueVideoById(videoId);
+    else player.loadVideoById(videoId);
+    if (typeof player.mute === 'function') player.mute();
+    if (typeof player.setVolume === 'function') player.setVolume(wanted);
+    logYoutubeVolume(usedCue ? 'cue' : 'load');
 }
 
 // DOM 元素
@@ -193,17 +784,62 @@ var controlCard = document.getElementById('controlCard');
 // 新增全域變數
 var prevButton = document.getElementById('prevButton');
 var nextButton = document.getElementById('nextButton');
-var savedVolume = volumeSlider ? parseFloat(volumeSlider.value) / 10 : 1;
+var savedVolume = normalizeVolume(volumeSlider ? parseFloat(volumeSlider.value) / 10 : 1);
 var volumeSyncLockUntil = 0;
+var volumeDragging = false;
+var deferredServerVolume = null;
+var appliedRevision = -1;
+var pendingPlayIndex = null;
+var pendingPlayOpId = 0;
+var pendingPlayTimer = null;
+
+function clearPendingPlay(force) {
+    pendingPlayIndex = null;
+    pendingPlayOpId = 0;
+    if (pendingPlayTimer) {
+        clearTimeout(pendingPlayTimer);
+        pendingPlayTimer = null;
+    }
+    if (force && socket) socket.emit('requestCurrentState');
+}
+
+function armPendingPlayTimeout() {
+    if (pendingPlayTimer) clearTimeout(pendingPlayTimer);
+    pendingPlayTimer = setTimeout(function () {
+        pendingPlayTimer = null;
+        if (pendingPlayIndex === null) return;
+        clearPendingPlay(true);
+    }, 4000);
+}
+var syncSession = window.RadioSyncClient && typeof RadioSyncClient.createSession === 'function'
+    ? RadioSyncClient.createSession()
+    : { clientId: 'local', opId: 0, volumeOpId: 0, stationOpId: 0 };
+var volumeSendTimer = null;
+var volumeLastSentAt = 0;
+var volumeSettleUntil = 0;
+var VOLUME_THROTTLE_MS = 150;
+var VOLUME_SETTLE_MS = 800;
 
 function getPlaylistVideoId(items, index) {
     return items && index >= 0 && items[index] ? items[index].id : null;
 }
 
 function normalizeVolume(value) {
-    value = parseFloat(value);
-    if (isNaN(value)) return savedVolume;
-    return Math.max(0, Math.min(1, value));
+    var rounded = null;
+    if (window.RadioSyncClient && typeof RadioSyncClient.roundVolume === 'function') {
+        rounded = RadioSyncClient.roundVolume(value);
+    } else {
+        value = parseFloat(value);
+        if (!isNaN(value)) {
+            if (value < 0) value = 0;
+            if (value > 1) value = 1;
+            rounded = Math.round(value * 100) / 100;
+        }
+    }
+    if (typeof rounded !== 'number' || isNaN(rounded)) {
+        return typeof savedVolume === 'number' && !isNaN(savedVolume) ? savedVolume : 1;
+    }
+    return rounded;
 }
 
 function getSavedVolume() {
@@ -229,19 +865,114 @@ function applyAudioVolume(volume) {
 
 function preserveVolumeForSourceSwitch() {
     var volume = rememberVolume();
-    // 忽略切換過程中晚到的舊同步狀態，避免把新播放器重設為 100%。
+    // 切台當下先保住本機音量。有版號的伺服器狀態仍會在拖曳結束或保護期結束後套用，不會永遠丟掉。
     volumeSyncLockUntil = Date.now() + 2000;
+    setTimeout(flushDeferredVolume, 2100);
     return volume;
+}
+
+function volumeHolding() {
+    return !!volumeDragging || Date.now() < volumeSettleUntil;
+}
+
+function flushDeferredVolume() {
+    if (volumeHolding() || deferredServerVolume == null) return;
+    var volume = deferredServerVolume;
+    deferredServerVolume = null;
+    rememberVolume(volume);
+    if (isYoutubeMode) syncYoutubeVolume();
+    else applyAudioVolume(volume);
+    if (typeof updateMuteButton === 'function') updateMuteButton();
+}
+
+function markVolumeActivity() {
+    volumeSettleUntil = Date.now() + VOLUME_SETTLE_MS;
+}
+
+function emitVolumeCommand() {
+    volumeLastSentAt = Date.now();
+    markVolumeActivity();
+    if (!socket) return;
+    var payload = { volume: getSavedVolume() };
+    if (window.RadioSyncClient && typeof RadioSyncClient.issueOp === 'function') {
+        var op = RadioSyncClient.issueOp(syncSession, 'volume');
+        payload.clientId = op.clientId;
+        payload.opId = op.opId;
+    }
+    socket.emit('setVolume', payload);
+}
+
+function scheduleVolumeSend() {
+    markVolumeActivity();
+    var elapsed = Date.now() - volumeLastSentAt;
+    if (elapsed >= VOLUME_THROTTLE_MS) {
+        if (volumeSendTimer) {
+            clearTimeout(volumeSendTimer);
+            volumeSendTimer = null;
+        }
+        emitVolumeCommand();
+        return;
+    }
+    if (!volumeSendTimer) {
+        volumeSendTimer = setTimeout(function () {
+            volumeSendTimer = null;
+            emitVolumeCommand();
+        }, VOLUME_THROTTLE_MS - elapsed);
+    }
+}
+
+function endVolumeDrag() {
+    if (!volumeDragging) return;
+    volumeDragging = false;
+    if (volumeSendTimer) {
+        clearTimeout(volumeSendTimer);
+        volumeSendTimer = null;
+    }
+    emitVolumeCommand();
 }
 
 // 初始化
 function init() {
+    if (window.isTv) {
+        var heading = document.getElementById('appHeading');
+        var foot = document.getElementById('appTitle');
+        if (heading) heading.textContent = '芯禾電台 TV';
+        if (foot) foot.textContent = '芯禾電台 TV';
+    }
     loadStations();
     setupEventListeners();
     setupYoutubeEventListeners();
     setupSocketListeners();
     setupTheme();
+    placeVolumeControl();
+    if (window.NowPlaying && typeof NowPlaying.init === 'function') NowPlaying.init(customStations);
     loadYouTubeAPI();
+    enableRadioDebug();
+    if (window.__radioDebug && socket && !socket.__radioDebugWrapped && typeof socket.emit === 'function') {
+        socket.__radioDebugWrapped = true;
+        var originalEmit = socket.emit.bind(socket);
+        socket.emit = function (name, payload) {
+            radioDebug('emit', { name: name });
+            return originalEmit(name, payload);
+        };
+        if (typeof socket.onAny === 'function') {
+            socket.onAny(function (name, payload) {
+                if (name !== 'radioStateUpdate' && name !== 'radioCommandError') return;
+                var yt = payload && payload.youtubeState;
+                radioDebug('socket-state', {
+                    name: name,
+                    rev: payload && payload.revision,
+                    index: yt && yt.currentIndex,
+                    id: yt && yt.currentVideoId,
+                    error: payload && payload.error
+                });
+            });
+        }
+    }
+
+    setInterval(checkYoutubeEnd, 500);
+    window.addEventListener('resize', layoutYoutubeFrame);
+    window.addEventListener('scroll', layoutYoutubeFrame, true);
 
     // 請求當前狀態並設置初始播放
     socket.emit('requestCurrentState');
@@ -262,12 +993,28 @@ function loadStations() {
 }
 
 // 創建電台元素
+function isBigBStation(station) {
+    if (window.NowPlaying && typeof NowPlaying.isBigB === 'function') return NowPlaying.isBigB(station);
+    return /antares\.dribbcast\.com\/proxy\/[A-Za-z]+/.test(station && station.url || '');
+}
+
 function createStationElement(station) {
-    return '<div class="list-group-item station-item" data-station-id="' + station.id + '">' +
-        '<div class="station-name">' + station.name + '</div>' +
+    var nowPlaying = '';
+    if (isBigBStation(station)) {
+        nowPlaying = '<div class="now-playing-container" data-now-playing="' + station.id + '">' +
+            '<span class="now-playing-label">現正播放：</span>' +
+            '<div class="now-playing-text" data-text="">載入中...</div>' +
+            '</div>';
+    }
+    return '<div class="station station-item" data-station-id="' + station.id + '">' +
+        '<div class="station-head">' +
+        '<strong class="station-name">' + escapeHtml(station.name) + '</strong>' +
+        '<span class="station-state" data-station-state></span>' +
+        '</div>' +
         '<div class="station-tags">' +
         createTagsHtml(station.tags) +
         '</div>' +
+        nowPlaying +
         '</div>';
 }
 
@@ -275,7 +1022,7 @@ function createStationElement(station) {
 function createTagsHtml(tags) {
     if (!tags) return '';
     return tags.map(function (tag) {
-        return '<span class="badge bg-' + getTagColor(tag) + ' me-1">' + tag + '</span>';
+        return '<span class="badge badge-' + getTagColor(tag) + '">' + tag + '</span>';
     }).join('');
 }
 
@@ -307,15 +1054,13 @@ function setupEventListeners() {
 
         // 更新滑桿顏色（將 0-10 的值轉換為 0-100 的百分比）
         e.target.style.setProperty('--value', (e.target.value * 10) + '%');
+        updateMuteButton();
 
-        // 使用防抖機制發送音量更新到伺服器
-        if (volumeDebounceTimer) {
-            clearTimeout(volumeDebounceTimer);
-        }
-        volumeDebounceTimer = setTimeout(function () {
-            updateRadioState();
-        }, volumeDebounceDelay);
+        scheduleVolumeSend();
     });
+    volumeSlider.addEventListener('pointerdown', function () { volumeDragging = true; });
+    volumeSlider.addEventListener('pointerup', endVolumeDrag);
+    volumeSlider.addEventListener('pointercancel', endVolumeDrag);
 
     // 初始化滑桿顏色（將 0-10 的值轉換為 0-100 的百分比）
     volumeSlider.style.setProperty('--value', (volumeSlider.value * 10) + '%');
@@ -342,6 +1087,23 @@ function setupEventListeners() {
         });
     }
 
+    if (window.isTv && volumeSlider) {
+        volumeSlider.addEventListener('keydown', function (event) {
+            var key = event.key || '';
+            var code = event.keyCode || event.which;
+            var delta = 0;
+            if (key === 'ArrowLeft' || code === 37) delta = -1;
+            else if (key === 'ArrowRight' || code === 39) delta = 1;
+            if (!delta) return;
+            event.preventDefault();
+            var currentValue = parseFloat(volumeSlider.value);
+            var newValue = Math.max(0, Math.min(10, currentValue + delta));
+            if (newValue === currentValue) return;
+            volumeSlider.value = newValue;
+            volumeSlider.dispatchEvent(new Event('input'));
+        });
+    }
+
     // 電台選擇
     stationList.addEventListener('click', function (e) {
         var stationItem = e.target.closest('.station-item');
@@ -359,29 +1121,39 @@ function setupEventListeners() {
 
     // 上一首按鈕
     prevButton.addEventListener('click', function () {
-        if (currentVideoIndex > 0) {
-            playYoutubeIndex(currentVideoIndex - 1);
-        }
+        var index = pendingPlayIndex !== null ? pendingPlayIndex : currentVideoIndex;
+        if (index > 0) playYoutubeIndex(index - 1);
     });
 
     // 下一首按鈕
     nextButton.addEventListener('click', function () {
-        if (currentVideoIndex < playlist.length - 1) {
-            playYoutubeIndex(currentVideoIndex + 1);
-        }
+        var index = pendingPlayIndex !== null ? pendingPlayIndex : currentVideoIndex;
+        if (index < playlist.length - 1) playYoutubeIndex(index + 1);
     });
+
+    var playPauseButton = document.getElementById('playPauseButton');
+    var muteButton = document.getElementById('muteButton');
+    var shuffleButton = document.getElementById('shuffleButton');
+    if (playPauseButton) playPauseButton.addEventListener('click', toggleYoutubePlayback);
+    if (muteButton) muteButton.addEventListener('click', toggleMute);
+    if (shuffleButton) shuffleButton.addEventListener('click', shufflePlaylist);
+    var expandPlayerButton = document.getElementById('expandPlayerButton');
+    var collapsePlayerButton = document.getElementById('collapsePlayerButton');
+    if (expandPlayerButton) expandPlayerButton.addEventListener('click', function () { setPlayerExpanded(true); });
+    if (collapsePlayerButton) collapsePlayerButton.addEventListener('click', function () { setPlayerExpanded(false); });
 
     // 監聽全螢幕狀態變更
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     document.addEventListener('mozfullscreenchange', handleFullscreenChange);
     document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+    document.addEventListener('visibilitychange', onYoutubeVisibilityChange);
 }
 
 // 獲取標籤顏色
 function getTagColor(tag) {
     var colors = {
-        'local': 'primary',
+        'local': 'secondary',
         'music': 'success',
         'news': 'info',
         'talk': 'warning',
@@ -406,6 +1178,7 @@ function playStation(station) {
         isYoutubeMode = false;
         youtubeSection.style.display = 'none';
         // 停止 YouTube 播放
+        markYoutubePlaybackPaused('stop');
         if (youtubePlayer && youtubePlayer.stopVideo) {
             youtubePlayer.stopVideo();
         }
@@ -426,37 +1199,22 @@ function playStation(station) {
     });
 
     startRadioTransition(station);
+    placeVolumeControl();
     updateRadioState();
+    announcePlayback(currentUserName() + ' 切換到 ' + station.name);
 }
 
 // 更新廣播狀態
 function updateRadioState() {
-    // 獲取當前音量值
-    var currentVolume = getSavedVolume();
-
-    var state = {
-        currentStation: currentStation,
-        isPlaying: !isYoutubeMode && radioPlaybackPhase !== 'idle',
-        volume: currentVolume,
-        youtubeState: {
-            isYoutubeMode: isYoutubeMode,
-            playlist: playlist,
-            currentIndex: currentVideoIndex,
-            currentVideoId: getPlaylistVideoId(playlist, currentVideoIndex)
-        }
-    };
-
-    // 避免無限循環：只有當播放清單有變化時才發送 addPlaylist
-    if (!playlistsEqual(playlist, lastSentPlaylist)) {
-        lastSentPlaylist = playlist.slice();
-        socket.emit('updateRadioState', state);
-
-        if (isYoutubeMode && playlist.length > 0 && !isLoadingPlaylist) {
-            socket.emit('addPlaylist', playlist);
-        }
-    } else {
-        socket.emit('updateRadioState', state);
+    // 只送目前這次的意圖。音量與佇列走各自的指令，避免把過期的整包狀態蓋回去。
+    if (!socket || !currentStation || isYoutubeMode) return;
+    var payload = { station: currentStation };
+    if (window.RadioSyncClient && typeof RadioSyncClient.issueOp === 'function') {
+        var op = RadioSyncClient.issueOp(syncSession, 'station');
+        payload.clientId = op.clientId;
+        payload.opId = op.opId;
     }
+    socket.emit('setStation', payload);
 }
 
 // 新增：只同步播放清單，不觸發播放狀態更新
@@ -492,12 +1250,24 @@ function setupSocketListeners() {
     });
 
     socket.on('onlineUsers', function (count) {
-        document.getElementById('onlineUsers').textContent = '線上人數: ' + count;
+        var onlineBadge = document.getElementById('onlineUsers');
+        onlineBadge.textContent = String(count);
+        onlineBadge.setAttribute('title', '線上人數: ' + count);
     });
 }
 
 // 新增處理狀態更新的函數
 function handleStateUpdate(state) {
+    var syncApi = window.RadioSyncClient;
+    if (syncApi && typeof state.revision === 'number' &&
+        syncApi.isStaleRevision(appliedRevision, state.revision)) {
+        return;
+    }
+    if (typeof state.revision === 'number') {
+        appliedRevision = syncApi
+            ? syncApi.nextAppliedRevision(appliedRevision, state.revision)
+            : state.revision;
+    }
     // 檢查是否需要切換模式 - 更智能的判斷
     // 只有當明確指定 YouTube 模式時才切換，避免因為缺少 youtubeState 而誤判
     var incomingYoutubeMode = !!(state.youtubeState && state.youtubeState.isYoutubeMode === true);
@@ -516,10 +1286,38 @@ function handleStateUpdate(state) {
         var shouldKeepLocalVolume = Date.now() < volumeSyncLockUntil &&
             Math.abs(incomingVolume - getSavedVolume()) > 0.001;
 
-        if (shouldKeepLocalVolume) {
+        var draggingNow = typeof volumeDragging !== 'undefined' && volumeDragging;
+        var settlingNow = typeof volumeSettleUntil === 'number' && Date.now() < volumeSettleUntil;
+        var session = typeof syncSession !== 'undefined' ? syncSession : null;
+        var volumeDecision;
+        if (syncApi && typeof syncApi.decideVolumeSync === 'function' && session) {
+            volumeDecision = syncApi.decideVolumeSync({
+                incomingVolume: incomingVolume,
+                origin: state.volumeOrigin || null,
+                clientId: session.clientId,
+                latestLocalOpId: session.volumeOpId,
+                interacting: draggingNow,
+                withinSettle: settlingNow,
+                deferredVolume: deferredServerVolume
+            });
+        } else if (syncApi && typeof syncApi.reconcileVolume === 'function') {
+            volumeDecision = syncApi.reconcileVolume(draggingNow, deferredServerVolume, incomingVolume);
+        } else {
+            volumeDecision = { applyNow: !draggingNow, deferredVolume: draggingNow ? incomingVolume : null, volume: incomingVolume };
+        }
+        if (!volumeDecision.applyNow) {
+            deferredServerVolume = volumeDecision.deferredVolume;
+            if (!volumeDecision.ignore && deferredServerVolume != null) {
+                setTimeout(flushDeferredVolume, VOLUME_SETTLE_MS);
+            }
+            console.log('音量先不覆蓋本機:', incomingVolume);
+        } else if (shouldKeepLocalVolume && typeof state.revision !== 'number') {
+            deferredServerVolume = incomingVolume;
             console.log('切換來源期間保留本機音量:', getSavedVolume());
         } else {
             rememberVolume(incomingVolume);
+            isMuted = incomingVolume === 0;
+            if (typeof updateMuteButton === 'function') updateMuteButton();
             // 更新播放器音量，但不中斷播放
             if (isYoutubeMode && youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
                 syncYoutubeVolume();
@@ -539,6 +1337,7 @@ function handleStateUpdate(state) {
         controlCard.style.display = 'none';
         youtubeSection.style.display = 'block';
         currentStationName.textContent = 'YouTube 播放器';
+        if (typeof placeVolumeControl === 'function') placeVolumeControl();
         // 必須先顯示容器，部分電視瀏覽器才能建立 iframe。
         ensureYoutubePlayerReady();
 
@@ -556,17 +1355,23 @@ function handleStateUpdate(state) {
         if (!state.youtubeState.playlist || state.youtubeState.playlist.length === 0) {
             playlist = [];
             currentVideoIndex = -1;
+            markYoutubePlaybackPaused('stop');
             if (youtubePlayer && youtubePlayer.stopVideo) {
                 youtubePlayer.stopVideo();
             }
         } else {
-            // 本地保護期：忽略遠端索引/影片ID更新，避免重排引發跳動
-            if (Date.now() < suppressIndexUpdatesUntil) {
-                console.log('本地重排保護期內，忽略遠端索引/影片ID更新');
-                return;
-            }
             var oldVideoId = getPlaylistVideoId(playlist, currentVideoIndex);
             var newVideoId = getPlaylistVideoId(state.youtubeState.playlist, state.youtubeState.currentIndex);
+            var playDecision = { apply: true, clearPending: false };
+            if (syncApi && typeof syncApi.decidePlayIndexSync === 'function' && typeof pendingPlayIndex !== 'undefined') {
+                playDecision = syncApi.decidePlayIndexSync({
+                    pendingIndex: pendingPlayIndex,
+                    pendingOpId: pendingPlayOpId,
+                    clientId: typeof syncSession !== 'undefined' && syncSession ? syncSession.clientId : null,
+                    incomingIndex: state.youtubeState.currentIndex,
+                    origin: state.playOrigin || null
+                });
+            }
 
             // 保存當前播放狀態
             var wasPlaying = youtubePlayer && youtubePlayer.getPlayerState &&
@@ -633,15 +1438,31 @@ function handleStateUpdate(state) {
 
             // 更新播放清單
             playlist = state.youtubeState.playlist;
-            currentVideoIndex = state.youtubeState.currentIndex;
+            if (playDecision.apply) {
+                if (currentVideoIndex !== state.youtubeState.currentIndex) clearYoutubeSkipNotice();
+                currentVideoIndex = state.youtubeState.currentIndex;
+                if (playDecision.clearPending) clearPendingPlay(false);
+            } else {
+                radioDebug('play-ignore-stale', {
+                    rev: state.revision,
+                    incoming: state.youtubeState.currentIndex,
+                    pending: pendingPlayIndex
+                });
+            }
+            radioDebug('sync-youtube', {
+                rev: state.revision,
+                index: currentVideoIndex,
+                id: newVideoId
+            });
 
             // 特殊處理：如果播放清單有內容但沒有設置當前影片，自動選擇第一首
             if (playlist.length > 0 && (currentVideoIndex === -1 || !newVideoId)) {
                 console.log('播放清單有內容但沒有設置當前影片，自動選擇第一首');
                 currentVideoIndex = 0;
                 newVideoId = playlist[0].id;
-                // 更新遠端狀態
-                updateRadioState();
+                if (socket && playlist[0].itemId) {
+                    socket.emit('playIndex', { index: 0, itemId: playlist[0].itemId });
+                }
             }
 
             // 在以下情況需要載入新影片：
@@ -678,7 +1499,9 @@ function handleStateUpdate(state) {
                 return;
             }
 
-            if (youtubePlayer && youtubePlayer.loadVideoById && newVideoId && shouldLoadVideo && videoActuallyChanged) {
+            if (!playDecision.apply) {
+                console.log('忽略較舊的換歌回聲:', state.youtubeState.currentIndex);
+            } else if (youtubePlayer && (youtubePlayer.cueVideoById || youtubePlayer.loadVideoById) && newVideoId && shouldLoadVideo && videoActuallyChanged) {
                 console.log('遠端載入新影片:', newVideoId, '原因:', {
                     needModeSwitch: needModeSwitch,
                     videoChanged: videoActuallyChanged,
@@ -686,27 +1509,15 @@ function handleStateUpdate(state) {
                     newVideoId: newVideoId,
                     playerState: youtubePlayer.getPlayerState ? youtubePlayer.getPlayerState() : 'unknown'
                 });
-                youtubePlayer.loadVideoById({
-                    videoId: newVideoId,
-                    startSeconds: undefined,
-                    suggestedQuality: 'default'
-                });
-                // 載入後自動播放
-                setTimeout(function () {
-                    if (youtubePlayer && youtubePlayer.playVideo) {
-                        youtubePlayer.playVideo();
-                    }
-                    setTimeout(syncYoutubeVolume, 1500);
-                }, 1000);
+                loadYoutubeVideoNow(youtubePlayer, newVideoId);
             } else if (youtubePlayer && newVideoId && youtubePlayer.getPlayerState &&
                 youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
-                // 如果影片已經載入但沒有播放，直接播放
-                setTimeout(function () {
-                    if (youtubePlayer && youtubePlayer.playVideo) {
-                        youtubePlayer.playVideo();
-                    }
-                    setTimeout(syncYoutubeVolume, 1000);
-                }, 500);
+                markYoutubePlaybackWanted();
+                if (!youtubeVolumeIsHeld() || youtubeCueVideoId !== newVideoId) {
+                    beginYoutubeVolumeHold(newVideoId, true);
+                } else {
+                    applyYoutubeVolumeMuted();
+                }
             } else if (!videoActuallyChanged) {
                 console.log('影片未改變，跳過重新載入:', {
                     videoId: newVideoId,
@@ -726,14 +1537,22 @@ function handleStateUpdate(state) {
         // 電台模式處理
         isYoutubeMode = false;
         youtubeSection.style.display = 'none';
+        markYoutubePlaybackPaused('stop');
         if (youtubePlayer && youtubePlayer.stopVideo) {
             youtubePlayer.stopVideo();
         }
         controlCard.style.display = 'block';
+        if (typeof placeVolumeControl === 'function') placeVolumeControl();
 
         // 檢查是否真的需要切換電台或從 YouTube 模式切換回電台
         // 只有在電台真的不同或需要模式切換時才中斷播放
-        var needStationSwitch = !currentStation || currentStation.id !== state.currentStation.id;
+        var staleOwnStation = window.RadioSyncClient && typeof RadioSyncClient.isOwnStaleEcho === 'function' &&
+            typeof syncSession !== 'undefined' &&
+            RadioSyncClient.isOwnStaleEcho(state.stationOrigin, syncSession.clientId, syncSession.stationOpId);
+        var needStationSwitch = !staleOwnStation && (!currentStation || currentStation.id !== state.currentStation.id);
+        if (staleOwnStation) {
+            console.log('忽略自己較舊的切台回聲');
+        }
 
         if (needStationSwitch || needModeSwitch) {
             console.log('需要切換電台或模式:', {
@@ -747,21 +1566,23 @@ function handleStateUpdate(state) {
             currentStationName.textContent = state.currentStation.name;
             if (state.isPlaying !== false) startRadioTransition(state.currentStation);
             else stopRadioPlayback();
-        } else {
+        } else if (!staleOwnStation) {
             // 如果不需要切換電台，只更新電台資訊但不中斷播放
             console.log('只更新電台資訊，不中斷播放');
             currentStation = state.currentStation;
             currentStationName.textContent = state.currentStation.name;
         }
 
-        // 更新電台列表選中狀態
-        var allStations = document.querySelectorAll('.station-item');
-        allStations.forEach(function (item) {
-            item.classList.remove('active');
-            if (item.dataset.stationId === state.currentStation.id) {
-                item.classList.add('active');
-            }
-        });
+        if (!staleOwnStation) {
+            // 更新電台列表選中狀態
+            var allStations = document.querySelectorAll('.station-item');
+            allStations.forEach(function (item) {
+                item.classList.remove('active');
+                if (item.dataset.stationId === state.currentStation.id) {
+                    item.classList.add('active');
+                }
+            });
+        }
 
     }
 }
@@ -800,13 +1621,23 @@ function handleInitialState(state) {
         isYoutubeMode = true;
         controlCard.style.display = 'none';
         youtubeSection.style.display = 'block';
+        if (typeof placeVolumeControl === 'function') placeVolumeControl();
         ensureYoutubePlayerReady();
     }
+    if (typeof placeVolumeControl === 'function') placeVolumeControl();
 }
 
 // 設置主題
 function setupTheme() {
-    isDarkMode = localStorage.getItem('theme') === 'dark';
+    var saved = 'light';
+    try {
+        saved = localStorage.getItem('theme') || 'light';
+    } catch (error) {
+        saved = 'light';
+    }
+    // 電視只有深色／淺色。若電腦存過其他深色主題，電視改套用既有深色樣式。
+    if (window.isTv) isDarkMode = saved === 'dark' || isDarkThemeName(saved);
+    else isDarkMode = saved === 'dark';
     applyTheme();
 }
 
@@ -849,7 +1680,8 @@ function getYoutubePlayerVars() {
     var playerVars = {
         'playsinline': 1,
         'enablejsapi': 1,
-        'rel': 0
+        'rel': 0,
+        'mute': 1
     };
     var origin = getYoutubeOrigin();
     if (origin) playerVars.origin = origin;
@@ -948,6 +1780,8 @@ function ensureYoutubePlayerReady() {
     }
 
     var playerDiv = getYoutubePlayerElement();
+    ensureYoutubeFrameHost();
+    layoutYoutubeFrame();
     if (!playerDiv) {
         setYoutubeInitStatus('找不到 YouTube 播放器容器。', true);
         return;
@@ -1023,42 +1857,152 @@ function onPlayerReady(event) {
         }
     };
 
-    // 設置初始音量
-    syncYoutubeVolume();
-
-    // 如果有待播放的視頻，立即播放
+    // 有影片要載入時由換片流程保持靜音，確認音量後才開聲。
     if (currentVideoIndex !== -1 && playlist[currentVideoIndex]) {
-        setTimeout(function () {
-            try {
-                event.target.loadVideoById(playlist[currentVideoIndex].id);
-                setTimeout(function () {
-                    event.target.playVideo();
-                    syncYoutubeVolume();
-                }, 500);
-            } catch (error) {
-                console.error('播放影片時發生錯誤:', error);
-            }
-        }, 100);
+        try {
+            loadYoutubeVideoNow(event.target, playlist[currentVideoIndex].id);
+        } catch (error) {
+            console.error('播放影片時發生錯誤:', error);
+        }
     } else if (playlist.length > 0) {
         console.log('自動播放第一首影片');
         playYoutubeIndex(0);
+    } else {
+        syncYoutubeVolume();
     }
 }
 
 function onPlayerError(event) {
-    // 2、5、100、101、150 是 IFrame API 的影片錯誤碼；播放器本身仍可使用。
-    console.error('YouTube 播放錯誤:', event && event.data);
-    setYoutubeInitStatus('YouTube 無法播放這部影片（錯誤碼：' + (event && event.data) + '）。', true);
+    var code = event && event.data;
+    radioDebug('yt-error', { code: code, index: currentVideoIndex, id: readYoutubeVideoId() });
+    scheduleYoutubeErrorSkip(code);
+}
+
+var youtubeSkipTimer = null;
+var youtubeSkipIndex = -1;
+var youtubeSkipVideoId = null;
+var youtubeFailedPass = [];
+var youtubeSkipNoticeText = '';
+var youtubeSkipNoticeTimer = null;
+var youtubeSkipNoticeToken = 0;
+
+function scrubSkipStatusLeak() {
+    var node;
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    node = document.getElementById('youtubeInitStatus');
+    if (!node) return;
+    if (node.textContent === '這首無法播放，已自動跳過' || node.textContent === '這首無法播放，已停止自動跳過') {
+        node.textContent = '';
+        if (node.style) node.style.display = 'none';
+    }
+}
+
+function clearYoutubeSkipNotice() {
+    if (typeof youtubeSkipNoticeToken !== 'number') youtubeSkipNoticeToken = 0;
+    youtubeSkipNoticeToken += 1;
+    if (youtubeSkipNoticeTimer) {
+        clearTimeout(youtubeSkipNoticeTimer);
+        youtubeSkipNoticeTimer = null;
+    }
+    youtubeSkipNoticeText = '';
+    scrubSkipStatusLeak();
+    if (typeof document !== 'undefined' && document.getElementById) {
+        var node = document.getElementById('youtubeSkipNotice');
+        if (node) {
+            node.textContent = '';
+            if (node.style) node.style.display = 'none';
+        }
+    }
+}
+
+function setYoutubeSkipNotice(message) {
+    var node;
+    if (typeof youtubeSkipNoticeToken !== 'number') youtubeSkipNoticeToken = 0;
+    if (youtubeSkipNoticeTimer) {
+        clearTimeout(youtubeSkipNoticeTimer);
+        youtubeSkipNoticeTimer = null;
+    }
+    youtubeSkipNoticeText = message || '';
+    scrubSkipStatusLeak();
+    if (typeof document !== 'undefined' && document.getElementById) {
+        node = document.getElementById('youtubeSkipNotice');
+        if (node) {
+            node.textContent = youtubeSkipNoticeText;
+            if (node.style) node.style.display = youtubeSkipNoticeText ? 'block' : 'none';
+        }
+    }
+    if (youtubeSkipNoticeText) {
+        youtubeSkipNoticeToken += 1;
+        var token = youtubeSkipNoticeToken;
+        youtubeSkipNoticeTimer = setTimeout(function () {
+            if (token !== youtubeSkipNoticeToken) return;
+            youtubeSkipNoticeTimer = null;
+            clearYoutubeSkipNotice();
+        }, 3000);
+    }
+    radioDebug('yt-skip-notice', { message: youtubeSkipNoticeText });
+}
+
+function clearYoutubeSkipTimer() {
+    if (youtubeSkipTimer) {
+        clearTimeout(youtubeSkipTimer);
+        youtubeSkipTimer = null;
+    }
+}
+
+function youtubeIndexFailed(index) {
+    var i;
+    if (!youtubeFailedPass) return false;
+    for (i = 0; i < youtubeFailedPass.length; i++) {
+        if (youtubeFailedPass[i] === index) return true;
+    }
+    return false;
+}
+
+function scheduleYoutubeErrorSkip(code) {
+    var item;
+    if (!playlist || !playlist.length || currentVideoIndex < 0 || !playlist[currentVideoIndex]) return;
+    item = playlist[currentVideoIndex];
+    clearYoutubeSkipTimer();
+    youtubeSkipIndex = currentVideoIndex;
+    youtubeSkipVideoId = item.id;
+    youtubeSkipTimer = setTimeout(function () {
+        youtubeSkipTimer = null;
+        commitYoutubeErrorSkip(code);
+    }, 1000);
+    radioDebug('yt-error-wait', { code: code, index: youtubeSkipIndex, id: youtubeSkipVideoId });
+}
+
+function commitYoutubeErrorSkip(code) {
+    var item;
+    var nextIndex;
+    if (!playlist || !playlist.length || currentVideoIndex < 0) return;
+    item = playlist[currentVideoIndex];
+    if (!item || currentVideoIndex !== youtubeSkipIndex || item.id !== youtubeSkipVideoId) {
+        radioDebug('yt-skip-cancel', { index: currentVideoIndex, waited: youtubeSkipIndex, id: item ? item.id : null });
+        return;
+    }
+    if (!youtubeFailedPass) youtubeFailedPass = [];
+    if (!youtubeIndexFailed(currentVideoIndex)) youtubeFailedPass.push(currentVideoIndex);
+    nextIndex = currentVideoIndex < playlist.length - 1 ? currentVideoIndex + 1 : 0;
+    if (youtubeIndexFailed(nextIndex) || youtubeFailedPass.length >= playlist.length) {
+        setYoutubeSkipNotice('這首無法播放，已停止自動跳過');
+        radioDebug('yt-skip-stop', { code: code, index: currentVideoIndex, tried: youtubeFailedPass.length });
+        return;
+    }
+    radioDebug('yt-skip', { code: code, from: currentVideoIndex, to: nextIndex });
+    playYoutubeIndex(nextIndex, { fromEnd: true, fromIndex: currentVideoIndex });
+    setYoutubeSkipNotice('這首無法播放，已自動跳過');
 }
 
 // 添加 YouTube 相關事件監聽器
 function setupYoutubeEventListeners() {
     // YouTube 模式切換按鈕
     var youtubeBtn = document.createElement('div');
-    youtubeBtn.className = 'list-group-item station-item';
-    youtubeBtn.innerHTML = '<div class="station-name">YouTube 播放器</div>' +
+    youtubeBtn.className = 'station station-item';
+    youtubeBtn.innerHTML = '<strong class="station-name">YouTube 播放器</strong>' +
         '<div class="station-tags">' +
-        '<span class="badge bg-danger me-1">YouTube</span>' +
+        '<span class="badge badge-info">YouTube</span>' +
         '</div>';
     stationList.insertBefore(youtubeBtn, stationList.firstChild);
 
@@ -1097,10 +2041,12 @@ function switchToYoutube() {
         audioPlayer.src = '';
     }
 
-    // 隱藏音量控制卡片
+    // 隱藏電台卡片，音量列改掛到 YouTube 區，遙控器仍可調音量。
     controlCard.style.display = 'none';
     youtubeSection.style.display = 'block';
     currentStationName.textContent = 'YouTube 播放器';
+    placeVolumeControl();
+    announcePlayback(currentUserName() + ' 切換到 YouTube 模式');
 
     // 必須在容器顯示後才建立播放器；某些電視瀏覽器無法初始化 display:none 內的 iframe。
     ensureYoutubePlayerReady();
@@ -1118,47 +2064,109 @@ function switchToYoutube() {
 
     updatePlaylistUI();
     updateNavigationButtons();
-
-    // 避免無限循環：只在播放清單為空時從伺服器載入
-    if (playlist.length === 0 && !isLoadingPlaylist) {
-        isLoadingPlaylist = true;
-        socket.emit('loadPlaylist');
-        setTimeout(function () {
-            isLoadingPlaylist = false;
-        }, 1000);
-    }
+    if (socket) socket.emit('setMode', { mode: 'youtube' });
 }
 
 // 載入 YouTube 播放清單
+function setImportStatus(message, isError) {
+    var status = document.getElementById('importStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    if (isError) status.className = 'import-status is-error';
+    else status.className = 'import-status';
+}
+
+function expandServerPlaylist(playlistId, onProgress, done) {
+    if (!socket) {
+        done({ ok: false, error: '尚未連上伺服器。' });
+        return;
+    }
+    var requestId = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    var settled = false;
+    function finish(payload) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.off('youtubePlaylistExpanded', onResult);
+        socket.off('youtubePlaylistProgress', onProgressEvent);
+        done(payload || { ok: false, error: '讀取播放清單時發生錯誤。' });
+    }
+    function onResult(payload) {
+        if (!payload || payload.requestId !== requestId) return;
+        finish(payload);
+    }
+    function onProgressEvent(payload) {
+        if (!payload || payload.requestId !== requestId) return;
+        onProgress(payload.loaded || 0);
+    }
+    var timer = setTimeout(function () {
+        finish({ ok: false, error: '讀取播放清單逾時。' });
+    }, 60000);
+    socket.on('youtubePlaylistExpanded', onResult);
+    socket.on('youtubePlaylistProgress', onProgressEvent);
+    socket.emit('expandYoutubePlaylist', { playlistId: playlistId, requestId: requestId });
+}
+
 function loadYoutubePlaylist() {
-    var urls = youtubeUrlInput.value.split('\n').filter(function (url) {
-        return url.trim() !== '';
-    });
-
-    var processedUrls = 0;
-    urls.forEach(function (url) {
-        var videoId = extractVideoId(url);
-        if (videoId) {
-            getVideoDetails(videoId, function (title) {
-                playlist.push({
-                    id: videoId,
-                    title: title || videoId
-                });
-                processedUrls++;
-
-                if (processedUrls === urls.length) {
-                    updatePlaylistUI();
-                    // 如果是第一個視頻，自動播放
-                    if (playlist.length === 1) {
-                        playYoutubeIndex(0);
-                    }
-                    updatePlaylistOnly();
-                }
-            });
-        }
-    });
-
+    var parsed = window.RadioSyncClient
+        ? RadioSyncClient.collectYoutubeImport(youtubeUrlInput.value, extractVideoId)
+        : [];
     youtubeUrlInput.value = '';
+    if (!parsed.length) {
+        setImportStatus('沒有可匯入的網址。', true);
+        return;
+    }
+    var slots = new Array(parsed.length);
+    var notes = [];
+    var pending = parsed.length;
+    if (addToPlaylistBtn) addToPlaylistBtn.disabled = true;
+    setImportStatus('正在匯入…', false);
+
+    function finishOne() {
+        pending--;
+        if (pending > 0) return;
+        var payload = [];
+        var i;
+        var j;
+        for (i = 0; i < slots.length; i++) {
+            var group = slots[i] || [];
+            for (j = 0; j < group.length; j++) payload.push(group[j]);
+        }
+        if (addToPlaylistBtn) addToPlaylistBtn.disabled = false;
+        if (!payload.length) {
+            setImportStatus(notes[0] || '沒有可匯入的影片。', true);
+            return;
+        }
+        if (socket) socket.emit('queueAddMany', { items: payload });
+        var message = '已匯入 ' + payload.length + ' 首';
+        if (notes.length) message += '。' + notes.join('');
+        setImportStatus(message, notes.length > 0);
+    }
+
+    parsed.forEach(function (item) {
+        if (item.kind === 'playlist') {
+            expandServerPlaylist(item.playlistId, function (loaded) {
+                setImportStatus('正在讀取播放清單…已取得 ' + loaded + ' 首', false);
+            }, function (result) {
+                var videos = [];
+                var list = result && result.items ? result.items : [];
+                var n;
+                for (n = 0; n < list.length; n++) {
+                    if (!list[n] || !list[n].videoId) continue;
+                    videos.push({ videoId: list[n].videoId, title: list[n].title || list[n].videoId });
+                }
+                slots[item.sourceIndex] = videos;
+                if (result && result.message) notes.push(result.message);
+                if (!result || !result.ok) notes.push((result && result.error) || '無法匯入播放清單。');
+                finishOne();
+            });
+            return;
+        }
+        getVideoDetails(item.videoId, function (title) {
+            slots[item.sourceIndex] = [{ videoId: item.videoId, title: title || item.videoId }];
+            finishOne();
+        });
+    });
 }
 
 // 更新播放清單 UI
@@ -1167,75 +2175,200 @@ function updatePlaylistUI() {
     playlist.forEach(function (video, index) {
         var item = document.createElement('div');
         item.className = 'playlist-item' + (index === currentVideoIndex ? ' active' : '');
+        var savedButton = window.isTv ? '' :
+            '<button type="button" class="btn icon-btn add-saved-btn" data-index="' + index + '" title="加入我的播放清單">' +
+            '<i class="bi bi-plus-lg"></i>' +
+            '</button>';
         item.innerHTML =
-            '<div class="d-flex justify-content-between align-items-center w-100">' +
-            '<span>' + (video.title || video.id) + '</span>' +
-            '<div class="btn-group">' +
-            '<button class="btn btn-sm btn-primary play-btn" data-index="' + index + '">' +
+            '<span class="playlist-title">' + escapeHtml(video.title || video.id) + '</span>' +
+            '<div class="playlist-actions">' +
+            '<button type="button" class="btn icon-btn move-up-btn" data-index="' + index + '" title="上移"' + (index === 0 ? ' disabled' : '') + '>' +
+            '<i class="bi bi-arrow-up"></i>' +
+            '</button>' +
+            '<button type="button" class="btn icon-btn move-down-btn" data-index="' + index + '" title="下移"' + (index === playlist.length - 1 ? ' disabled' : '') + '>' +
+            '<i class="bi bi-arrow-down"></i>' +
+            '</button>' +
+            '<button type="button" class="btn icon-btn play-btn" data-index="' + index + '" title="播放">' +
             '<i class="bi bi-play-fill"></i>' +
             '</button>' +
-            '<button class="btn btn-sm btn-danger remove-btn" data-index="' + index + '">' +
+            savedButton +
+            '<button type="button" class="btn icon-btn remove-btn" data-index="' + index + '" title="移除">' +
             '<i class="bi bi-trash"></i>' +
             '</button>' +
-            '</div>' +
             '</div>';
 
-        // 添加事件監聽器
-        item.querySelector('.play-btn').addEventListener('click', function () {
-            playYoutubeIndex(index);
+        item.querySelector('.play-btn').addEventListener('click', function (event) {
+            playYoutubeIndex(parseInt(event.currentTarget.getAttribute('data-index'), 10));
         });
-        item.querySelector('.remove-btn').addEventListener('click', function () {
-            removeFromPlaylist(index);
+        item.querySelector('.remove-btn').addEventListener('click', function (event) {
+            removeFromPlaylist(parseInt(event.currentTarget.getAttribute('data-index'), 10));
         });
+        item.querySelector('.move-up-btn').addEventListener('click', function (event) {
+            var from = parseInt(event.currentTarget.getAttribute('data-index'), 10);
+            movePlaylistItem(from, from - 1);
+        });
+        item.querySelector('.move-down-btn').addEventListener('click', function (event) {
+            var from = parseInt(event.currentTarget.getAttribute('data-index'), 10);
+            movePlaylistItem(from, from + 1);
+        });
+        var addSaved = item.querySelector('.add-saved-btn');
+        if (addSaved) {
+            addSaved.addEventListener('click', function (event) {
+                var at = parseInt(event.currentTarget.getAttribute('data-index'), 10);
+                if (window.PcPlaylists && typeof window.PcPlaylists.promptAdd === 'function') {
+                    window.PcPlaylists.promptAdd(playlist[at]);
+                }
+            });
+        }
 
         playlistContainer.appendChild(item);
     });
 
-    // 更新按鈕狀態
     updateNavigationButtons();
 }
 
+function movePlaylistItem(from, to) {
+    var item = playlist[from];
+    if (!item) return;
+    if (socket && item.itemId) socket.emit('queueMove', { itemId: item.itemId, toIndex: to });
+    if (!window.PlaylistOrder || typeof PlaylistOrder.moveItem !== 'function') return;
+    var snapshot = capturePlaybackSnapshot();
+    var result = PlaylistOrder.moveItem(playlist, from, to, currentVideoIndex);
+    playlist = result.list;
+    currentVideoIndex = result.currentIndex;
+    updatePlaylistUI();
+    setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 100);
+}
+
+function shufflePlaylist() {
+    if (!playlist || playlist.length <= 1) return;
+    if (socket) socket.emit('shuffleQueue');
+}
+
+function toggleYoutubePlayback() {
+    if (!playlist.length) return;
+    if (!youtubePlayer || typeof youtubePlayer.getPlayerState !== 'function') {
+        if (currentVideoIndex < 0) playYoutubeIndex(0);
+        return;
+    }
+    var state = -1;
+    try {
+        state = youtubePlayer.getPlayerState();
+    } catch (error) {
+        state = -1;
+    }
+    var playing = typeof YT !== 'undefined' && YT.PlayerState && state === YT.PlayerState.PLAYING;
+    if (playing && typeof youtubePlayer.pauseVideo === 'function') {
+        markYoutubePlaybackPaused('user');
+        youtubePlayer.pauseVideo();
+    } else if (currentVideoIndex < 0) {
+        playYoutubeIndex(0);
+    } else if (typeof youtubePlayer.playVideo === 'function') {
+        markYoutubePlaybackWanted();
+        syncYoutubeVolume();
+        youtubePlayer.playVideo();
+        syncYoutubeVolume();
+        armYoutubeVolumeChecks();
+    }
+}
+
+function toggleMute() {
+    if (getSavedVolume() > 0) {
+        volumeBeforeMute = getSavedVolume();
+        rememberVolume(0);
+    } else {
+        rememberVolume(volumeBeforeMute > 0 ? volumeBeforeMute : 1);
+    }
+    isMuted = getSavedVolume() === 0;
+    volumeSyncLockUntil = Date.now() + 1000;
+    if (isYoutubeMode) syncYoutubeVolume();
+    else applyAudioVolume(getSavedVolume());
+    updateMuteButton();
+    scheduleVolumeSend();
+}
+
+function updateMuteButton() {
+    var button = document.getElementById('muteButton');
+    if (!button) return;
+    var muted = getSavedVolume() === 0;
+    isMuted = muted;
+    button.innerHTML = muted ? '<i class="bi bi-volume-mute-fill"></i>' : '<i class="bi bi-volume-up-fill"></i>';
+    button.setAttribute('title', muted ? '取消靜音' : '靜音');
+    button.setAttribute('aria-pressed', muted ? 'true' : 'false');
+}
+
+function updatePlayPauseButton() {
+    var button = document.getElementById('playPauseButton');
+    if (!button) return;
+    var playing = false;
+    try {
+        playing = !!(youtubePlayer && typeof youtubePlayer.getPlayerState === 'function' &&
+            typeof YT !== 'undefined' && YT.PlayerState &&
+            youtubePlayer.getPlayerState() === YT.PlayerState.PLAYING);
+    } catch (error) {
+        playing = false;
+    }
+    button.innerHTML = playing ? '<i class="bi bi-pause-fill"></i>' : '<i class="bi bi-play-fill"></i>';
+    button.setAttribute('title', playing ? '暫停' : '播放');
+    button.setAttribute('aria-label', playing ? '暫停' : '播放');
+}
+
 // 播放指定索引的視頻
-function playYoutubeIndex(index) {
+function playYoutubeIndex(index, options) {
     if (index >= 0 && index < playlist.length) {
-        // 切換前記錄播放位置（若是同一支影片，切換後恢復）
-        var snapshot = capturePlaybackSnapshot();
+        var fromEnd = !!(options && options.fromEnd);
+        var fromIndex = options && typeof options.fromIndex === 'number' ? options.fromIndex : null;
+        var snapshot = fromEnd ? null : capturePlaybackSnapshot();
+        clearYoutubeSkipTimer();
+        clearYoutubeSkipNotice();
+        if (!fromEnd) youtubeFailedPass = [];
+        var playOp = null;
+        if (window.RadioSyncClient && typeof RadioSyncClient.issueOp === 'function' && typeof syncSession !== 'undefined' && syncSession) {
+            playOp = RadioSyncClient.issueOp(syncSession, 'play');
+            pendingPlayOpId = playOp.opId;
+            pendingPlayIndex = index;
+            armPendingPlayTimeout();
+        }
         currentVideoIndex = index;
-        if (youtubePlayer && youtubePlayer.loadVideoById) {
-            youtubePlayer.loadVideoById(playlist[index].id);
-            setTimeout(function () {
-                if (youtubePlayer && youtubePlayer.playVideo) {
-                    youtubePlayer.playVideo();
-                }
-                setTimeout(function () {
-                    syncYoutubeVolume();
-                    setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 200);
-                }, 1000);
-            }, 500);
+        if (youtubePlayer && (youtubePlayer.cueVideoById || youtubePlayer.loadVideoById)) {
+            loadYoutubeVideoNow(youtubePlayer, playlist[index].id);
+            if (snapshot && snapshot.videoId && playlist[index] && snapshot.videoId === playlist[index].id) {
+                setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 200);
+            }
         }
         updatePlaylistUI();
-        updateRadioState();
+        if (socket) {
+            var payload = { index: index, itemId: playlist[index].itemId || null };
+            if (fromIndex !== null) payload.fromIndex = fromIndex;
+            if (playOp) {
+                payload.clientId = playOp.clientId;
+                payload.opId = playOp.opId;
+            }
+            socket.emit('playIndex', payload);
+        }
+        radioDebug('play-index', { index: index, id: playlist[index].id, fromEnd: fromEnd, fromIndex: fromIndex, opId: playOp ? playOp.opId : null });
     }
 }
 
 // 從播放清單中移除
 function removeFromPlaylist(index) {
     var snapshot = capturePlaybackSnapshot();
+    var item = playlist[index];
+    if (socket && item && item.itemId) socket.emit('queueRemove', { itemId: item.itemId });
     playlist.splice(index, 1);
     if (currentVideoIndex === index) {
         if (playlist.length > 0) {
             playYoutubeIndex(Math.min(index, playlist.length - 1));
         } else {
             currentVideoIndex = -1;
-            if (youtubePlayer) {
-                youtubePlayer.stopVideo();
-            }
+            markYoutubePlaybackPaused('stop');
+            if (youtubePlayer && youtubePlayer.stopVideo) youtubePlayer.stopVideo();
+            updatePlaylistUI();
         }
-    } else if (currentVideoIndex > index) {
-        currentVideoIndex--;
+    } else {
+        if (currentVideoIndex > index) currentVideoIndex--;
+        updatePlaylistUI();
     }
-    updatePlaylistUI();
-    updatePlaylistOnly();
     setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 100);
 }
 
@@ -1243,56 +2376,76 @@ function removeFromPlaylist(index) {
 function clearYoutubePlaylist() {
     playlist = [];
     currentVideoIndex = -1;
-    if (youtubePlayer) {
+    markYoutubePlaybackPaused('stop');
+    if (youtubePlayer && youtubePlayer.stopVideo) {
         youtubePlayer.stopVideo();
     }
     updatePlaylistUI();
-    updateRadioState();
     updateNavigationButtons();
-
-    // 清除伺服器上的播放清單
-    socket.emit('clearPlaylist');
+    if (socket) socket.emit('queueClear');
 }
 
 // 修改 onPlayerStateChange 函數
 function onPlayerStateChange(event) {
-    // 當視頻結束時
-    if (event.data === YT.PlayerState.ENDED) {
-        // 記錄當前的全螢幕狀態
+    updatePlayPauseButton();
+    var playerState = event && event.data;
+    var states = (typeof YT !== 'undefined' && YT.PlayerState) ? YT.PlayerState : null;
+    var playingNow = (states && playerState === states.PLAYING) || playerState === 1;
+    var pausedNow = (states && playerState === states.PAUSED) || playerState === 2;
+    var endedNow = states ? playerState === states.ENDED : playerState === 0;
+    if (playingNow) {
+        youtubeBlockEnded = false;
+        markYoutubePlaybackWanted();
+    }
+    radioDebug('player-state', {
+        state: playerState,
+        time: youtubePlayer && youtubePlayer.getCurrentTime ? youtubePlayer.getCurrentTime() : null,
+        id: readYoutubeVideoId()
+    });
+    var cuedNow = (states && playerState === states.CUED) || playerState === 5;
+    var watchVolume = playingNow || cuedNow || playerState === -1 || playerState === 3 ||
+        (states && (playerState === states.UNSTARTED || playerState === states.BUFFERING));
+    var normalizedState = playingNow ? 1 : (cuedNow ? 5 : playerState);
+    if (!(watchVolume && typeof noteYoutubeVolumeState === 'function' && noteYoutubeVolumeState(normalizedState))) {
+        if (states && (playerState === states.UNSTARTED || playerState === states.BUFFERING || playerState === states.PLAYING)) {
+            syncYoutubeVolume(true);
+            armYoutubeVolumeChecks();
+        } else if (playerState === -1 || playerState === 3 || playerState === 1) {
+            syncYoutubeVolume(true);
+            armYoutubeVolumeChecks();
+        }
+    }
+    if (pausedNow) {
+        if (!youtubePauseIsIntentional() && youtubeReachedEnd()) {
+            advanceYoutubeFromEnd();
+            return;
+        }
+        if (!youtubePauseIsIntentional()) noteUnexpectedYoutubePause();
+        return;
+    }
+    if (endedNow) {
         wasFullscreen = !!(document.fullscreenElement ||
             document.webkitFullscreenElement ||
             document.mozFullScreenElement ||
             document.msFullscreenElement);
-
-        if (currentVideoIndex < playlist.length - 1) {
-            playYoutubeIndex(currentVideoIndex + 1);
-        } else {
-            // 播放列表結束時，從頭開始播放
-            playYoutubeIndex(0);
-        }
+        advanceYoutubeFromEnd();
+        return;
     }
-    // 當新視頻開始播放時
-    else if (event.data === YT.PlayerState.PLAYING) {
-        setTimeout(syncYoutubeVolume, 1500);
-
-        // 如果之前是全螢幕，嘗試恢復全螢幕狀態
-        if (wasFullscreen) {
-            try {
-                var elem = document.documentElement;
-                if (elem.requestFullscreen) {
-                    elem.requestFullscreen();
-                } else if (elem.webkitRequestFullscreen) {
-                    elem.webkitRequestFullscreen();
-                } else if (elem.msRequestFullscreen) {
-                    elem.msRequestFullscreen();
-                } else if (elem.mozRequestFullScreen) {
-                    elem.mozRequestFullScreen();
-                }
-            } catch (error) {
-                console.log('恢復全螢幕失敗:', error);
+    if (states && playerState === states.PLAYING && wasFullscreen) {
+        try {
+            var elem = document.documentElement;
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            } else if (elem.webkitRequestFullscreen) {
+                elem.webkitRequestFullscreen();
+            } else if (elem.msRequestFullscreen) {
+                elem.msRequestFullscreen();
+            } else if (elem.mozRequestFullScreen) {
+                elem.mozRequestFullScreen();
             }
+        } catch (error) {
+            console.log('恢復全螢幕失敗:', error);
         }
-        updateRadioState();
     }
 }
 
@@ -1324,6 +2477,10 @@ function updateNavigationButtons() {
         prevButton.disabled = currentVideoIndex <= 0;
         nextButton.disabled = currentVideoIndex >= playlist.length - 1;
     }
+    var shuffleButton = document.getElementById('shuffleButton');
+    if (shuffleButton) shuffleButton.disabled = playlist.length <= 1;
+    if (typeof updatePlayPauseButton === 'function') updatePlayPauseButton();
+    if (typeof syncYoutubeChrome === 'function') syncYoutubeChrome();
 }
 
 // 處理全螢幕狀態變更
@@ -1393,6 +2550,7 @@ socket.on('playlistCleared', function (data) {
         lastSentPlaylist = [];
 
         // 停止 YouTube 播放
+        markYoutubePlaybackPaused('stop');
         if (youtubePlayer && youtubePlayer.stopVideo) {
             youtubePlayer.stopVideo();
         }

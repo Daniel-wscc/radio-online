@@ -138,6 +138,25 @@ test('old A errors cannot replace selected B', async () => {
     a.dispatchEvent(new Event('error'));
     assert.equal(e.player.pending, pending);
     assert.equal(e.player.retryAt, 0);
+    assert.equal(e.player.target.name, 'B');
+    assert.notEqual(e.states.at(-1).phase, 'retrying');
+});
+
+test('15 秒沒播成會標成重試，再點同一台立刻重開；自動播放被擋不算壞掉', async () => {
+    const e = setup();
+    e.player.select(A);
+    assert.equal(e.states.at(-1).phase, 'loading');
+    assert.equal(e.states.at(-1).targetId, 'a');
+    e.advance(15001);
+    assert.equal(e.states.at(-1).phase, 'retrying');
+    e.player.select(A);
+    assert.equal(e.player.pending.station.id, 'a');
+    assert.equal(e.states.at(-1).phase, 'loading');
+    const audio = e.player.pending.audio;
+    audio.play = () => Promise.reject(Object.assign(new Error(), { name: 'NotAllowedError' }));
+    audio.readyState = 3; audio.end = 5; e.player.tick();
+    await Promise.resolve();
+    assert.equal(e.states.at(-1).phase, 'blocked');
 });
 
 test('YouTube/stop destroys A and B and prevents stale playback or retries', async () => {
@@ -215,12 +234,16 @@ test('TV remote snapshots select B without pausing A; volume-only snapshots do n
         document: { querySelectorAll: () => [] },
         youtubeSection: { style: {} }, controlCard: { style: {} }, currentStationName: {},
         youtubePlayer: null, window: {}, volumeSyncLockUntil: 0,
+        markYoutubePlaybackPaused() {},
+        radioDebug() {},
         audioPlayer: { pause() { pauses++; } },
         startRadioTransition: s => selected.push(s), stopRadioPlayback: () => { pauses++; },
         normalizeVolume: v => v, rememberVolume() {}, applyAudioVolume() {}, getSavedVolume: () => 0.5,
         radioPlaybackPhase: 'loading', playlist: [], currentVideoIndex: -1, lastSentPlaylist: [],
         getPlaylistVideoId: () => null, playlistsEqual: () => true,
-        socket: { emit: (name, data) => sent.push(data) }
+        socket: { emit: (name, data) => sent.push({ name, data }) },
+        appliedRevision: -1, volumeDragging: false, deferredServerVolume: null,
+        RadioSyncClient: { isStaleRevision: () => false, nextAppliedRevision: (a, b) => b, reconcileVolume: () => ({ applyNow: true, volume: 0.4, deferredVolume: null }) }
     });
     vm.runInContext(code, context);
     context.handleStateUpdate({ currentStation: B, isPlaying: true });
@@ -229,8 +252,8 @@ test('TV remote snapshots select B without pausing A; volume-only snapshots do n
     context.handleStateUpdate({ currentStation: { ...B }, volume: 0.4, isPlaying: true });
     assert.equal(selected.length, 1, 'missing youtubeState must not be interpreted as a mode switch');
     context.updateRadioState();
-    assert.equal(sent[0].currentStation.id, B.id);
-    assert.equal(sent[0].isPlaying, true, 'broadcast intent, not candidate.paused');
+    assert.equal(sent[0].name, 'setStation');
+    assert.equal(sent[0].data.station.id, B.id);
     context.handleInitialState({ currentStation: C, isPlaying: true });
     assert.equal(selected.at(-1).id, C.id);
     assert.equal(pauses, 0);

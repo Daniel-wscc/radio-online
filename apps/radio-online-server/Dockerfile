@@ -16,7 +16,7 @@ RUN mkdir -p /app/data && \
 
 # 安裝所有必要的套件
 RUN npm init -y && \
-    npm install --foreground-scripts --no-audit --no-fund --save express@4.22.1 socket.io@4.8.1 cors@2.8.5 @socket.io/admin-ui@0.5.1 better-sqlite3@11.10.0 && \
+    npm install --foreground-scripts --no-audit --no-fund --save express@4.22.1 socket.io@4.8.1 cors@2.8.5 @socket.io/admin-ui@0.5.1 better-sqlite3@12.11.1 && \
     npm install --save-dev typescript@5.5.4 ts-node@10.9.2 nodemon@3.1.9 @types/node@22.12.0 @types/express@5.0.3 @types/cors@2.8.19 @types/better-sqlite3@7.6.13
 
 # 建立 tsconfig.json
@@ -28,6 +28,7 @@ RUN echo '{\
     "target": "es6",\
     "moduleResolution": "node10",\
     "skipLibCheck": true,\
+    "allowJs": false,\
     "sourceMap": true,\
     "outDir": "."\
   },\

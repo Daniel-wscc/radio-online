@@ -52,3 +52,13 @@ test('展開時播放器留在原父節點，並把尺寸設成舞台大小', ()
     context.layoutYoutubeFrame();
     assert.equal(frame.parentNode, section);
 });
+
+test('展開控制列跟播放器同寬，音量槽吃掉剩餘寬度', () => {
+    const css = fs.readFileSync('radio-online-vanillaJS/styles.css', 'utf8');
+    assert.match(css, /\.expanded-actions\s*\{[^}]*width:\s*100%/);
+    assert.match(css, /\.expanded-actions #youtubeVolumeHost\s*\{[^}]*flex:\s*1 1 auto/);
+    assert.match(css, /\.expanded-actions \.form-range\s*\{[^}]*flex:\s*1 1 auto/);
+    assert.match(css, /\.expanded-actions \.btn,\s*\.expanded-actions \.volume-btn\s*\{[^}]*flex:\s*0 0 auto/);
+    assert.match(css, /html\.is-tv \.expanded-actions #youtubeVolumeHost\s*\{[^}]*min-width:\s*0/);
+    assert.doesNotMatch(css, /oklch\(|color-mix\(|@layer|:has\(|aspect-ratio/);
+});

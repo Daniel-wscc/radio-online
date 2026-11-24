@@ -633,7 +633,39 @@ img { max-width: 100%; }
     color: var(--bc);
     font-weight: 700;
 }
-.expanded-actions { display: flex; justify-content: center; }
+.expanded-actions {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+}
+.expanded-actions #playbackControls {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    gap: 0.5rem;
+}
+.expanded-actions #youtubeVolumeHost {
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.expanded-actions .volume-control {
+    width: 100%;
+    min-width: 0;
+}
+.expanded-actions .form-range {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 4rem;
+}
+.expanded-actions .btn,
+.expanded-actions .volume-btn {
+    flex: 0 0 auto;
+}
+@media (max-width: 767px) {
+    html:not(.is-tv) .expanded-actions .volume-btn { display: none; }
+}
 
 .sr-only {
     position: absolute;
@@ -941,6 +973,11 @@ html.is-tv #youtubeVolumeHost {
     width: auto;
     flex: 1 1 18rem;
     min-width: 18rem;
+}
+html.is-tv .expanded-actions #youtubeVolumeHost {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
 }
 html.is-tv .station-spinner {
     width: 28px;

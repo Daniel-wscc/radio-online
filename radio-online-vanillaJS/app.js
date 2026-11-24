@@ -269,17 +269,52 @@ function isDarkThemeName(name) {
 function syncYoutubeVolume() {
     try {
         var currentVolume = getSavedVolume();
-        if (youtubePlayer && typeof youtubePlayer.setVolume === 'function') {
-            youtubePlayer.setVolume(currentVolume * 100);
-            if (currentVolume === 0) {
-                youtubePlayer.mute();
-            } else {
-                youtubePlayer.unMute();
-            }
+        var wanted = Math.round(currentVolume * 100);
+        if (!youtubePlayer || typeof youtubePlayer.setVolume !== 'function') return;
+        var actual = typeof youtubePlayer.getVolume === 'function' ? youtubePlayer.getVolume() : null;
+        var muted = typeof youtubePlayer.isMuted === 'function' ? !!youtubePlayer.isMuted() : null;
+        var volumeOk = actual === null || actual === wanted;
+        var muteOk = currentVolume === 0 ? (muted === null || muted === true) : (muted === null || muted === false);
+        if (actual !== null && volumeOk && muteOk) return;
+        youtubePlayer.setVolume(wanted);
+        if (currentVolume === 0) {
+            if (typeof youtubePlayer.mute === 'function') youtubePlayer.mute();
+        } else if (typeof youtubePlayer.unMute === 'function') {
+            youtubePlayer.unMute();
         }
     } catch (error) {
         console.error('同步音量失敗:', error);
     }
+}
+
+var youtubeVolumeTimers = [];
+
+function armYoutubeVolumeChecks() {
+    var delays = [0, 250, 750, 1500];
+    var i;
+    for (i = 0; i < youtubeVolumeTimers.length; i++) clearTimeout(youtubeVolumeTimers[i]);
+    youtubeVolumeTimers = [];
+    for (i = 0; i < delays.length; i++) {
+        youtubeVolumeTimers.push(setTimeout(syncYoutubeVolume, delays[i]));
+    }
+}
+
+function loadYoutubeVideoNow(player, videoId) {
+    if (!player || typeof player.loadVideoById !== 'function' || !videoId) return;
+    var wanted = Math.round(getSavedVolume() * 100);
+    if (typeof player.mute === 'function') player.mute();
+    if (typeof player.setVolume === 'function') player.setVolume(wanted);
+    player.loadVideoById(videoId);
+    if (typeof player.setVolume === 'function') player.setVolume(wanted);
+    if (typeof player.playVideo === 'function') player.playVideo();
+    if (typeof player.setVolume === 'function') player.setVolume(wanted);
+    if (wanted === 0) {
+        if (typeof player.mute === 'function') player.mute();
+    } else if (typeof player.unMute === 'function') {
+        player.unMute();
+    }
+    syncYoutubeVolume();
+    armYoutubeVolumeChecks();
 }
 
 // DOM 元素
@@ -950,27 +985,13 @@ function handleStateUpdate(state) {
                     newVideoId: newVideoId,
                     playerState: youtubePlayer.getPlayerState ? youtubePlayer.getPlayerState() : 'unknown'
                 });
-                youtubePlayer.loadVideoById({
-                    videoId: newVideoId,
-                    startSeconds: undefined,
-                    suggestedQuality: 'default'
-                });
-                // 載入後自動播放
-                setTimeout(function () {
-                    if (youtubePlayer && youtubePlayer.playVideo) {
-                        youtubePlayer.playVideo();
-                    }
-                    setTimeout(syncYoutubeVolume, 1500);
-                }, 1000);
+                loadYoutubeVideoNow(youtubePlayer, newVideoId);
             } else if (youtubePlayer && newVideoId && youtubePlayer.getPlayerState &&
                 youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
-                // 如果影片已經載入但沒有播放，直接播放
-                setTimeout(function () {
-                    if (youtubePlayer && youtubePlayer.playVideo) {
-                        youtubePlayer.playVideo();
-                    }
-                    setTimeout(syncYoutubeVolume, 1000);
-                }, 500);
+                syncYoutubeVolume();
+                if (youtubePlayer.playVideo) youtubePlayer.playVideo();
+                syncYoutubeVolume();
+                armYoutubeVolumeChecks();
             } else if (!videoActuallyChanged) {
                 console.log('影片未改變，跳過重新載入:', {
                     videoId: newVideoId,
@@ -1309,19 +1330,13 @@ function onPlayerReady(event) {
     // 設置初始音量
     syncYoutubeVolume();
 
-    // 如果有待播放的視頻，立即播放
+    // 如果有待播放的視頻，先把音量設好再立刻播放
     if (currentVideoIndex !== -1 && playlist[currentVideoIndex]) {
-        setTimeout(function () {
-            try {
-                event.target.loadVideoById(playlist[currentVideoIndex].id);
-                setTimeout(function () {
-                    event.target.playVideo();
-                    syncYoutubeVolume();
-                }, 500);
-            } catch (error) {
-                console.error('播放影片時發生錯誤:', error);
-            }
-        }, 100);
+        try {
+            loadYoutubeVideoNow(event.target, playlist[currentVideoIndex].id);
+        } catch (error) {
+            console.error('播放影片時發生錯誤:', error);
+        }
     } else if (playlist.length > 0) {
         console.log('自動播放第一首影片');
         playYoutubeIndex(0);
@@ -1654,16 +1669,8 @@ function playYoutubeIndex(index) {
         var snapshot = capturePlaybackSnapshot();
         currentVideoIndex = index;
         if (youtubePlayer && youtubePlayer.loadVideoById) {
-            youtubePlayer.loadVideoById(playlist[index].id);
-            setTimeout(function () {
-                if (youtubePlayer && youtubePlayer.playVideo) {
-                    youtubePlayer.playVideo();
-                }
-                setTimeout(function () {
-                    syncYoutubeVolume();
-                    setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 200);
-                }, 1000);
-            }, 500);
+            loadYoutubeVideoNow(youtubePlayer, playlist[index].id);
+            setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 200);
         }
         updatePlaylistUI();
         if (socket) socket.emit('playIndex', { index: index, itemId: playlist[index].itemId || null });
@@ -1706,8 +1713,17 @@ function clearYoutubePlaylist() {
 // 修改 onPlayerStateChange 函數
 function onPlayerStateChange(event) {
     updatePlayPauseButton();
+    var playerState = event && event.data;
+    var states = (typeof YT !== 'undefined' && YT.PlayerState) ? YT.PlayerState : null;
+    if (states && (playerState === states.UNSTARTED || playerState === states.BUFFERING || playerState === states.PLAYING)) {
+        syncYoutubeVolume();
+        armYoutubeVolumeChecks();
+    } else if (playerState === -1 || playerState === 3 || playerState === 1) {
+        syncYoutubeVolume();
+        armYoutubeVolumeChecks();
+    }
     // 當視頻結束時
-    if (event.data === YT.PlayerState.ENDED) {
+    if (playerState === (states ? states.ENDED : 0)) {
         // 記錄當前的全螢幕狀態
         wasFullscreen = !!(document.fullscreenElement ||
             document.webkitFullscreenElement ||
@@ -1720,27 +1736,20 @@ function onPlayerStateChange(event) {
             // 播放列表結束時，從頭開始播放
             playYoutubeIndex(0);
         }
-    }
-    // 當新視頻開始播放時
-    else if (event.data === YT.PlayerState.PLAYING) {
-        setTimeout(syncYoutubeVolume, 1500);
-
-        // 如果之前是全螢幕，嘗試恢復全螢幕狀態
-        if (wasFullscreen) {
-            try {
-                var elem = document.documentElement;
-                if (elem.requestFullscreen) {
-                    elem.requestFullscreen();
-                } else if (elem.webkitRequestFullscreen) {
-                    elem.webkitRequestFullscreen();
-                } else if (elem.msRequestFullscreen) {
-                    elem.msRequestFullscreen();
-                } else if (elem.mozRequestFullScreen) {
-                    elem.mozRequestFullScreen();
-                }
-            } catch (error) {
-                console.log('恢復全螢幕失敗:', error);
+    } else if (states && playerState === states.PLAYING && wasFullscreen) {
+        try {
+            var elem = document.documentElement;
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            } else if (elem.webkitRequestFullscreen) {
+                elem.webkitRequestFullscreen();
+            } else if (elem.msRequestFullscreen) {
+                elem.msRequestFullscreen();
+            } else if (elem.mozRequestFullScreen) {
+                elem.mozRequestFullScreen();
             }
+        } catch (error) {
+            console.log('恢復全螢幕失敗:', error);
         }
     }
 }

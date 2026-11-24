@@ -303,28 +303,28 @@ function isDarkThemeName(name) {
     return false;
 }
 
-function syncYoutubeVolume() {
+function syncYoutubeVolume(force) {
     try {
         var currentVolume = getSavedVolume();
-        var wanted = youtubeTargetVolume();
+        var wanted = typeof youtubeTargetVolume === 'function' ? youtubeTargetVolume() : Math.round(currentVolume * 100);
         if (!youtubePlayer || typeof youtubePlayer.setVolume !== 'function') return;
-        if (youtubeVolumeIsHeld()) {
+        if (typeof youtubeVolumeIsHeld === 'function' && youtubeVolumeIsHeld()) {
             applyYoutubeVolumeMuted();
-            logYoutubeVolume('sync-hold');
+            if (typeof logYoutubeVolume === 'function') logYoutubeVolume('sync-hold');
             return;
         }
         var actual = typeof youtubePlayer.getVolume === 'function' ? youtubePlayer.getVolume() : null;
         var muted = typeof youtubePlayer.isMuted === 'function' ? !!youtubePlayer.isMuted() : null;
         var volumeOk = actual === null || actual === wanted;
         var muteOk = currentVolume === 0 ? (muted === null || muted === true) : (muted === null || muted === false);
-        if (actual !== null && volumeOk && muteOk) return;
+        if (!force && actual !== null && volumeOk && muteOk) return;
         youtubePlayer.setVolume(wanted);
         if (currentVolume === 0) {
             if (typeof youtubePlayer.mute === 'function') youtubePlayer.mute();
         } else if (typeof youtubePlayer.unMute === 'function') {
             youtubePlayer.unMute();
         }
-        logYoutubeVolume('sync');
+        if (typeof logYoutubeVolume === 'function') logYoutubeVolume(force ? 'sync-force' : 'sync');
     } catch (error) {
         console.error('同步音量失敗:', error);
     }
@@ -335,8 +335,10 @@ var youtubeVolumeHold = false;
 var youtubeVolumeHoldToken = 0;
 var youtubeVolumeHoldTimer = null;
 var youtubeVolumeHoldStarted = 0;
+var youtubeVolumeHeardCued = false;
 var youtubeVolumeHeardPlaying = false;
 var youtubeVolumePlaybackStarted = false;
+var youtubeVolumeConfirmCount = 0;
 var youtubeCueVideoId = null;
 
 function youtubeVolumeIsHeld() {
@@ -352,14 +354,24 @@ function youtubeTargetVolume() {
     return Math.round(current * 100);
 }
 
+function youtubeVideoMatchesTarget() {
+    var currentId;
+    if (typeof youtubeCueVideoId === 'undefined' || !youtubeCueVideoId) return true;
+    currentId = typeof readYoutubeVideoId === 'function' ? readYoutubeVideoId() : null;
+    if (!currentId) return true;
+    return currentId === youtubeCueVideoId;
+}
+
 function logYoutubeVolume(reason) {
     var actual = null;
     var muted = null;
     var state = null;
+    var videoId = null;
     try {
         if (youtubePlayer && typeof youtubePlayer.getVolume === 'function') actual = youtubePlayer.getVolume();
         if (youtubePlayer && typeof youtubePlayer.isMuted === 'function') muted = !!youtubePlayer.isMuted();
         if (youtubePlayer && typeof youtubePlayer.getPlayerState === 'function') state = youtubePlayer.getPlayerState();
+        if (typeof readYoutubeVideoId === 'function') videoId = readYoutubeVideoId();
     } catch (error) {}
     radioDebug('yt-vol', {
         reason: reason,
@@ -367,6 +379,8 @@ function logYoutubeVolume(reason) {
         getVolume: actual,
         isMuted: muted,
         state: state,
+        videoId: videoId,
+        targetId: typeof youtubeCueVideoId !== 'undefined' ? youtubeCueVideoId : null,
         hold: youtubeVolumeIsHeld(),
         t: Date.now()
     });
@@ -391,6 +405,7 @@ function youtubeVolumeMatches() {
 function releaseYoutubeVolumeHold() {
     var wanted = youtubeTargetVolume();
     youtubeVolumeHold = false;
+    youtubeVolumeConfirmCount = 0;
     if (typeof youtubeVolumeHoldTimer !== 'undefined' && youtubeVolumeHoldTimer) {
         clearTimeout(youtubeVolumeHoldTimer);
         youtubeVolumeHoldTimer = null;
@@ -404,15 +419,20 @@ function releaseYoutubeVolumeHold() {
         }
     } catch (error) {}
     logYoutubeVolume('release');
+    if (typeof armYoutubeVolumeChecks === 'function') armYoutubeVolumeChecks();
 }
 
 function tickYoutubeVolumeHold() {
     var elapsed;
+    var videoReady;
+    var playingState;
     if (!youtubeVolumeIsHeld()) return;
     applyYoutubeVolumeMuted();
     if (typeof youtubeVolumeHoldStarted !== 'number') youtubeVolumeHoldStarted = Date.now();
     elapsed = Date.now() - youtubeVolumeHoldStarted;
-    if (!youtubeVolumePlaybackStarted && (youtubeVolumeMatches() || elapsed >= 2000)) {
+    videoReady = !!(typeof youtubeVolumeHeardCued !== 'undefined' && youtubeVolumeHeardCued) ||
+        youtubeVideoMatchesTarget();
+    if (!youtubeVolumePlaybackStarted && ((videoReady && youtubeVolumeMatches()) || elapsed >= 2000)) {
         youtubeVolumePlaybackStarted = true;
         try {
             if (youtubePlayer && typeof youtubePlayer.playVideo === 'function') youtubePlayer.playVideo();
@@ -420,22 +440,39 @@ function tickYoutubeVolumeHold() {
         applyYoutubeVolumeMuted();
         logYoutubeVolume(youtubeVolumeMatches() ? 'play-muted' : 'play-muted-timeout');
     }
-    if (youtubeVolumePlaybackStarted && youtubeVolumeHeardPlaying && youtubeVolumeMatches()) {
-        releaseYoutubeVolumeHold();
-        return;
+    if (!youtubeVolumeHeardPlaying && youtubeVolumePlaybackStarted && youtubeVideoMatchesTarget() &&
+        youtubePlayer && typeof youtubePlayer.getPlayerState === 'function') {
+        try {
+            playingState = youtubePlayer.getPlayerState();
+            if (playingState === 1) youtubeVolumeHeardPlaying = true;
+        } catch (error) {}
+    }
+    if (youtubeVolumePlaybackStarted && youtubeVolumeHeardPlaying && youtubeVideoMatchesTarget() && youtubeVolumeMatches()) {
+        if (typeof youtubeVolumeConfirmCount !== 'number') youtubeVolumeConfirmCount = 0;
+        youtubeVolumeConfirmCount += 1;
+        if (youtubeVolumeConfirmCount >= 2 || elapsed >= 2000) {
+            releaseYoutubeVolumeHold();
+            return;
+        }
+    } else {
+        youtubeVolumeConfirmCount = 0;
     }
     if (elapsed >= 8000) {
+        youtubeVolumeHoldTimer = null;
         logYoutubeVolume('hold-timeout');
         return;
     }
     youtubeVolumeHoldTimer = setTimeout(tickYoutubeVolumeHold, 50);
 }
 
-function beginYoutubeVolumeHold() {
+function beginYoutubeVolumeHold(videoId, usedCue) {
     youtubeVolumeHold = true;
+    youtubeVolumeHeardCued = !usedCue;
     youtubeVolumeHeardPlaying = false;
-    youtubeVolumePlaybackStarted = false;
+    youtubeVolumePlaybackStarted = !usedCue;
+    youtubeVolumeConfirmCount = 0;
     youtubeVolumeHoldStarted = Date.now();
+    if (videoId) youtubeCueVideoId = videoId;
     if (typeof youtubeVolumeHoldToken !== 'number') youtubeVolumeHoldToken = 0;
     youtubeVolumeHoldToken += 1;
     if (typeof youtubeVolumeHoldTimer !== 'undefined' && youtubeVolumeHoldTimer) {
@@ -448,14 +485,16 @@ function beginYoutubeVolumeHold() {
 }
 
 function noteYoutubeVolumeState(playerState) {
+    var matchesVideo;
     if (!youtubeVolumeIsHeld()) return false;
-    if (playerState === 1) youtubeVolumeHeardPlaying = true;
+    matchesVideo = youtubeVideoMatchesTarget();
+    if (playerState === 5 && matchesVideo) youtubeVolumeHeardCued = true;
+    if (playerState === 1 && matchesVideo) youtubeVolumeHeardPlaying = true;
     applyYoutubeVolumeMuted();
     logYoutubeVolume('state');
     return true;
 }
 
-var youtubeVolumeTimers = [];
 var youtubeWantedPlaying = false;
 var youtubePauseIntent = null;
 var youtubeResumeCount = 0;
@@ -471,7 +510,7 @@ function armYoutubeVolumeChecks() {
     for (i = 0; i < youtubeVolumeTimers.length; i++) clearTimeout(youtubeVolumeTimers[i]);
     youtubeVolumeTimers = [];
     for (i = 0; i < delays.length; i++) {
-        youtubeVolumeTimers.push(setTimeout(syncYoutubeVolume, delays[i]));
+        youtubeVolumeTimers.push(setTimeout(function () { syncYoutubeVolume(true); }, delays[i]));
     }
 }
 
@@ -545,8 +584,6 @@ function resumeYoutubeFromBackground() {
     if (!youtubePlayer || typeof youtubePlayer.playVideo !== 'function') return;
     var player = youtubePlayer;
     if (typeof youtubeVolumeHold !== 'undefined' && youtubeVolumeHold) {
-        if (typeof applyYoutubeVolumeMuted === 'function') applyYoutubeVolumeMuted();
-        player.playVideo();
         if (typeof applyYoutubeVolumeMuted === 'function') applyYoutubeVolumeMuted();
         return;
     }
@@ -706,6 +743,7 @@ function enableRadioDebug() {
 
 function loadYoutubeVideoNow(player, videoId) {
     var wanted;
+    var usedCue;
     if (!player || !videoId) return;
     if (typeof youtubeCueVideoId !== 'undefined' && youtubeCueVideoId === videoId && youtubeVolumeIsHeld()) {
         applyYoutubeVolumeMuted();
@@ -713,17 +751,18 @@ function loadYoutubeVideoNow(player, videoId) {
         return;
     }
     if (typeof player.cueVideoById !== 'function' && typeof player.loadVideoById !== 'function') return;
+    usedCue = typeof player.cueVideoById === 'function';
     youtubeCueVideoId = videoId;
     markYoutubePlaybackWanted();
-    beginYoutubeVolumeHold();
+    beginYoutubeVolumeHold(videoId, usedCue);
     wanted = youtubeTargetVolume();
     if (typeof player.mute === 'function') player.mute();
     if (typeof player.setVolume === 'function') player.setVolume(wanted);
-    if (typeof player.cueVideoById === 'function') player.cueVideoById(videoId);
+    if (usedCue) player.cueVideoById(videoId);
     else player.loadVideoById(videoId);
     if (typeof player.mute === 'function') player.mute();
     if (typeof player.setVolume === 'function') player.setVolume(wanted);
-    logYoutubeVolume('cue');
+    logYoutubeVolume(usedCue ? 'cue' : 'load');
 }
 
 // DOM 元素
@@ -1474,8 +1513,11 @@ function handleStateUpdate(state) {
             } else if (youtubePlayer && newVideoId && youtubePlayer.getPlayerState &&
                 youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
                 markYoutubePlaybackWanted();
-                beginYoutubeVolumeHold();
-                applyYoutubeVolumeMuted();
+                if (!youtubeVolumeIsHeld() || youtubeCueVideoId !== newVideoId) {
+                    beginYoutubeVolumeHold(newVideoId, true);
+                } else {
+                    applyYoutubeVolumeMuted();
+                }
             } else if (!videoActuallyChanged) {
                 console.log('影片未改變，跳過重新載入:', {
                     videoId: newVideoId,
@@ -2360,14 +2402,16 @@ function onPlayerStateChange(event) {
         time: youtubePlayer && youtubePlayer.getCurrentTime ? youtubePlayer.getCurrentTime() : null,
         id: readYoutubeVideoId()
     });
-    var watchVolume = playingNow || playerState === -1 || playerState === 3 ||
+    var cuedNow = (states && playerState === states.CUED) || playerState === 5;
+    var watchVolume = playingNow || cuedNow || playerState === -1 || playerState === 3 ||
         (states && (playerState === states.UNSTARTED || playerState === states.BUFFERING));
-    if (!(watchVolume && noteYoutubeVolumeState(playingNow ? 1 : playerState))) {
+    var normalizedState = playingNow ? 1 : (cuedNow ? 5 : playerState);
+    if (!(watchVolume && typeof noteYoutubeVolumeState === 'function' && noteYoutubeVolumeState(normalizedState))) {
         if (states && (playerState === states.UNSTARTED || playerState === states.BUFFERING || playerState === states.PLAYING)) {
-            syncYoutubeVolume();
+            syncYoutubeVolume(true);
             armYoutubeVolumeChecks();
         } else if (playerState === -1 || playerState === 3 || playerState === 1) {
-            syncYoutubeVolume();
+            syncYoutubeVolume(true);
             armYoutubeVolumeChecks();
         }
     }

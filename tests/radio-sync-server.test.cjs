@@ -216,3 +216,27 @@ test('空佇列仍可進入 YouTube，無效匯入行會被跳過且順序不變
     assert.equal(indexed.ok, false);
     db.close();
 });
+
+test('自動跳過帶 fromIndex 時，只有第一台還停在原曲的請求會生效', () => {
+    const { db } = tempDb();
+    const store = createRadioStore(db);
+    assert.equal(store.apply('queueAddMany', { items: [
+        { videoId: 'aaaaaaaaaaa', title: '壞' },
+        { videoId: 'bbbbbbbbbbb', title: '下一首' },
+        { videoId: 'ccccccccccc', title: '再下一首' }
+    ] }).ok, true);
+    assert.equal(store.getState().youtubeState.currentIndex, 0);
+    const first = store.apply('playIndex', { index: 1, fromIndex: 0 });
+    assert.equal(first.ok, true);
+    assert.equal(store.getState().youtubeState.currentIndex, 1);
+    const again = store.apply('playIndex', { index: 1, fromIndex: 0 });
+    assert.equal(again.ok, false);
+    const stale = store.apply('playIndex', { index: 2, fromIndex: 0 });
+    assert.equal(stale.ok, false);
+    assert.equal(store.getState().youtubeState.currentIndex, 1);
+    assert.equal(store.getState().youtubeState.currentVideoId, 'bbbbbbbbbbb');
+    const chosen = store.apply('playIndex', { index: 2 });
+    assert.equal(chosen.ok, true);
+    assert.equal(store.getState().youtubeState.currentIndex, 2);
+    db.close();
+});

@@ -633,6 +633,13 @@ img { max-width: 100%; }
     color: var(--bc);
     font-weight: 700;
 }
+.youtube-skip-notice {
+    margin: 0.35rem 0 0;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--bc);
+}
+html.is-tv .youtube-skip-notice { font-size: 1.15rem; }
 .expanded-actions {
     display: flex;
     align-items: center;

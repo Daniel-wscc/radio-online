@@ -509,10 +509,17 @@ function advanceYoutubeFromEnd() {
     var nextIndex = currentVideoIndex < playlist.length - 1 ? currentVideoIndex + 1 : 0;
     youtubeBlockEnded = true;
     radioDebug('end-next', { from: currentVideoIndex, to: nextIndex, endedId: endedId });
-    playYoutubeIndex(nextIndex, { fromEnd: true });
+    playYoutubeIndex(nextIndex, { fromEnd: true, fromIndex: currentVideoIndex });
 }
 
 function checkYoutubeEnd() {
+    var played = 0;
+    try {
+        played = youtubePlayer && typeof youtubePlayer.getCurrentTime === 'function' ? youtubePlayer.getCurrentTime() : 0;
+    } catch (error) {
+        played = 0;
+    }
+    if (typeof played === 'number' && played > 1) youtubeFailedPass = [];
     if (youtubePauseIsIntentional() || !youtubeWantedPlaying) return;
     if (youtubeBlockEnded) {
         var current = 0;
@@ -1641,9 +1648,86 @@ function onPlayerReady(event) {
 }
 
 function onPlayerError(event) {
-    // 2、5、100、101、150 是 IFrame API 的影片錯誤碼；播放器本身仍可使用。
-    console.error('YouTube 播放錯誤:', event && event.data);
-    setYoutubeInitStatus('YouTube 無法播放這部影片（錯誤碼：' + (event && event.data) + '）。', true);
+    var code = event && event.data;
+    radioDebug('yt-error', { code: code, index: currentVideoIndex, id: readYoutubeVideoId() });
+    scheduleYoutubeErrorSkip(code);
+}
+
+var youtubeSkipTimer = null;
+var youtubeSkipIndex = -1;
+var youtubeSkipVideoId = null;
+var youtubeFailedPass = [];
+var youtubeSkipNoticeText = '';
+
+function clearYoutubeSkipTimer() {
+    if (youtubeSkipTimer) {
+        clearTimeout(youtubeSkipTimer);
+        youtubeSkipTimer = null;
+    }
+}
+
+function youtubeIndexFailed(index) {
+    var i;
+    if (!youtubeFailedPass) return false;
+    for (i = 0; i < youtubeFailedPass.length; i++) {
+        if (youtubeFailedPass[i] === index) return true;
+    }
+    return false;
+}
+
+function setYoutubeSkipNotice(message) {
+    youtubeSkipNoticeText = message || '';
+    var ids = ['youtubeSkipNotice', 'youtubeInitStatus'];
+    var i;
+    var node;
+    if (typeof document !== 'undefined' && document.getElementById) {
+        for (i = 0; i < ids.length; i++) {
+            node = document.getElementById(ids[i]);
+            if (!node) continue;
+            node.textContent = youtubeSkipNoticeText;
+            if (node.style) node.style.display = youtubeSkipNoticeText ? 'block' : 'none';
+            if (node.className && node.className.indexOf('is-error') !== -1) {
+                node.className = node.className.replace(' is-error', '');
+            }
+        }
+    }
+    radioDebug('yt-skip-notice', { message: youtubeSkipNoticeText });
+}
+
+function scheduleYoutubeErrorSkip(code) {
+    var item;
+    if (!playlist || !playlist.length || currentVideoIndex < 0 || !playlist[currentVideoIndex]) return;
+    item = playlist[currentVideoIndex];
+    clearYoutubeSkipTimer();
+    youtubeSkipIndex = currentVideoIndex;
+    youtubeSkipVideoId = item.id;
+    youtubeSkipTimer = setTimeout(function () {
+        youtubeSkipTimer = null;
+        commitYoutubeErrorSkip(code);
+    }, 1000);
+    radioDebug('yt-error-wait', { code: code, index: youtubeSkipIndex, id: youtubeSkipVideoId });
+}
+
+function commitYoutubeErrorSkip(code) {
+    var item;
+    var nextIndex;
+    if (!playlist || !playlist.length || currentVideoIndex < 0) return;
+    item = playlist[currentVideoIndex];
+    if (!item || currentVideoIndex !== youtubeSkipIndex || item.id !== youtubeSkipVideoId) {
+        radioDebug('yt-skip-cancel', { index: currentVideoIndex, waited: youtubeSkipIndex, id: item ? item.id : null });
+        return;
+    }
+    if (!youtubeFailedPass) youtubeFailedPass = [];
+    if (!youtubeIndexFailed(currentVideoIndex)) youtubeFailedPass.push(currentVideoIndex);
+    nextIndex = currentVideoIndex < playlist.length - 1 ? currentVideoIndex + 1 : 0;
+    if (youtubeIndexFailed(nextIndex) || youtubeFailedPass.length >= playlist.length) {
+        setYoutubeSkipNotice('這首無法播放，已停止自動跳過');
+        radioDebug('yt-skip-stop', { code: code, index: currentVideoIndex, tried: youtubeFailedPass.length });
+        return;
+    }
+    setYoutubeSkipNotice('這首無法播放，已自動跳過');
+    radioDebug('yt-skip', { code: code, from: currentVideoIndex, to: nextIndex });
+    playYoutubeIndex(nextIndex, { fromEnd: true, fromIndex: currentVideoIndex });
 }
 
 // 添加 YouTube 相關事件監聽器
@@ -1968,7 +2052,10 @@ function updatePlayPauseButton() {
 function playYoutubeIndex(index, options) {
     if (index >= 0 && index < playlist.length) {
         var fromEnd = !!(options && options.fromEnd);
+        var fromIndex = options && typeof options.fromIndex === 'number' ? options.fromIndex : null;
         var snapshot = fromEnd ? null : capturePlaybackSnapshot();
+        clearYoutubeSkipTimer();
+        if (!fromEnd) youtubeFailedPass = [];
         currentVideoIndex = index;
         if (youtubePlayer && youtubePlayer.loadVideoById) {
             loadYoutubeVideoNow(youtubePlayer, playlist[index].id);
@@ -1977,8 +2064,12 @@ function playYoutubeIndex(index, options) {
             }
         }
         updatePlaylistUI();
-        if (socket) socket.emit('playIndex', { index: index, itemId: playlist[index].itemId || null });
-        radioDebug('play-index', { index: index, id: playlist[index].id, fromEnd: fromEnd });
+        if (socket) {
+            var payload = { index: index, itemId: playlist[index].itemId || null };
+            if (fromIndex !== null) payload.fromIndex = fromIndex;
+            socket.emit('playIndex', payload);
+        }
+        radioDebug('play-index', { index: index, id: playlist[index].id, fromEnd: fromEnd, fromIndex: fromIndex });
     }
 }
 

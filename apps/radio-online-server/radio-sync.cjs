@@ -199,6 +199,12 @@ function applyCommand(state, name, payload, ids) {
         if (!isFinite(index) || index < 0 || index >= youtube.playlist.length) {
             return { ok: false, error: '索引無效' };
         }
+        if (body && body.fromIndex !== undefined && body.fromIndex !== null) {
+            var fromIndex = parseInt(body.fromIndex, 10);
+            if (!isFinite(fromIndex) || fromIndex !== youtube.currentIndex) {
+                return { ok: false, error: '播放位置已變更' };
+            }
+        }
         youtube.currentIndex = index;
         youtube.currentVideoId = youtube.playlist[index].id;
         youtube.isYoutubeMode = true;

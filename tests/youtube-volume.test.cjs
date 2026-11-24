@@ -63,20 +63,44 @@ function run(saved, player) {
     return { context: context, timers: timers, player: player };
 }
 
-test('換歌時先保持靜音，音量確認且開始播放後才出聲', () => {
+test('換歌先排隊且保持靜音，音量確認後才播放，開始播放後才開聲', () => {
     const player = new FakePlayer();
+    player.cueVideoById = function (id) {
+        this.volume = 100;
+        this.muted = false;
+        this.log.push('cue:' + id);
+    };
     const env = run(0.4, player);
     env.context.loadYoutubeVideoNow(player, 'abcdefghijk');
-    const loadAt = player.log.indexOf('load:abcdefghijk');
-    assert.ok(loadAt > 0);
     assert.equal(player.log[0], 'mute');
-    assert.ok(player.log.indexOf('play') > loadAt);
-    assert.equal(player.muted, true);
+    assert.ok(player.log.indexOf('cue:abcdefghijk') > 0);
+    assert.equal(player.log.indexOf('play'), -1);
     assert.equal(player.log.indexOf('unmute'), -1);
+    assert.equal(player.muted, true);
+    env.context.tickYoutubeVolumeHold();
+    assert.ok(player.log.indexOf('play') > player.log.indexOf('cue:abcdefghijk'));
+    assert.equal(player.muted, true);
     env.context.youtubeVolumeHeardPlaying = true;
     env.context.tickYoutubeVolumeHold();
     assert.equal(player.volume, 40);
     assert.equal(player.muted, false);
+});
+
+test('同一首在靜音確認期間不會被再載入一次', () => {
+    const player = new FakePlayer();
+    var cues = 0;
+    player.cueVideoById = function (id) {
+        cues += 1;
+        this.volume = 100;
+        this.muted = false;
+        this.log.push('cue:' + id);
+    };
+    const env = run(0.4, player);
+    env.context.loadYoutubeVideoNow(player, 'abcdefghijk');
+    env.context.loadYoutubeVideoNow(player, 'abcdefghijk');
+    assert.equal(cues, 1);
+    assert.equal(player.muted, true);
+    assert.equal(player.log.indexOf('unmute'), -1);
 });
 
 test('YouTube 仍回報 100 時不開聲，音量跟上後才開聲', () => {

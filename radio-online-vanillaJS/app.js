@@ -336,6 +336,8 @@ var youtubeVolumeHoldToken = 0;
 var youtubeVolumeHoldTimer = null;
 var youtubeVolumeHoldStarted = 0;
 var youtubeVolumeHeardPlaying = false;
+var youtubeVolumePlaybackStarted = false;
+var youtubeCueVideoId = null;
 
 function youtubeVolumeIsHeld() {
     return typeof youtubeVolumeHold !== 'undefined' && !!youtubeVolumeHold;
@@ -410,12 +412,20 @@ function tickYoutubeVolumeHold() {
     applyYoutubeVolumeMuted();
     if (typeof youtubeVolumeHoldStarted !== 'number') youtubeVolumeHoldStarted = Date.now();
     elapsed = Date.now() - youtubeVolumeHoldStarted;
-    if (youtubeVolumeHeardPlaying && youtubeVolumeMatches()) {
+    if (!youtubeVolumePlaybackStarted && (youtubeVolumeMatches() || elapsed >= 2000)) {
+        youtubeVolumePlaybackStarted = true;
+        try {
+            if (youtubePlayer && typeof youtubePlayer.playVideo === 'function') youtubePlayer.playVideo();
+        } catch (error) {}
+        applyYoutubeVolumeMuted();
+        logYoutubeVolume(youtubeVolumeMatches() ? 'play-muted' : 'play-muted-timeout');
+    }
+    if (youtubeVolumePlaybackStarted && youtubeVolumeHeardPlaying && youtubeVolumeMatches()) {
         releaseYoutubeVolumeHold();
         return;
     }
-    if (elapsed >= 2000) {
-        releaseYoutubeVolumeHold();
+    if (elapsed >= 8000) {
+        logYoutubeVolume('hold-timeout');
         return;
     }
     youtubeVolumeHoldTimer = setTimeout(tickYoutubeVolumeHold, 50);
@@ -424,6 +434,7 @@ function tickYoutubeVolumeHold() {
 function beginYoutubeVolumeHold() {
     youtubeVolumeHold = true;
     youtubeVolumeHeardPlaying = false;
+    youtubeVolumePlaybackStarted = false;
     youtubeVolumeHoldStarted = Date.now();
     if (typeof youtubeVolumeHoldToken !== 'number') youtubeVolumeHoldToken = 0;
     youtubeVolumeHoldToken += 1;
@@ -637,6 +648,7 @@ function advanceYoutubeFromEnd() {
     var nextIndex = currentVideoIndex < playlist.length - 1 ? currentVideoIndex + 1 : 0;
     youtubeBlockEnded = true;
     radioDebug('end-next', { from: currentVideoIndex, to: nextIndex, endedId: endedId });
+    if (typeof logYoutubeVolume === 'function') logYoutubeVolume('auto-next');
     playYoutubeIndex(nextIndex, { fromEnd: true, fromIndex: currentVideoIndex });
 }
 
@@ -693,19 +705,25 @@ function enableRadioDebug() {
 }
 
 function loadYoutubeVideoNow(player, videoId) {
-    if (!player || typeof player.loadVideoById !== 'function' || !videoId) return;
+    var wanted;
+    if (!player || !videoId) return;
+    if (typeof youtubeCueVideoId !== 'undefined' && youtubeCueVideoId === videoId && youtubeVolumeIsHeld()) {
+        applyYoutubeVolumeMuted();
+        logYoutubeVolume('skip-duplicate-load');
+        return;
+    }
+    if (typeof player.cueVideoById !== 'function' && typeof player.loadVideoById !== 'function') return;
+    youtubeCueVideoId = videoId;
     markYoutubePlaybackWanted();
     beginYoutubeVolumeHold();
-    var wanted = youtubeTargetVolume();
+    wanted = youtubeTargetVolume();
     if (typeof player.mute === 'function') player.mute();
     if (typeof player.setVolume === 'function') player.setVolume(wanted);
-    player.loadVideoById(videoId);
+    if (typeof player.cueVideoById === 'function') player.cueVideoById(videoId);
+    else player.loadVideoById(videoId);
     if (typeof player.mute === 'function') player.mute();
     if (typeof player.setVolume === 'function') player.setVolume(wanted);
-    if (typeof player.playVideo === 'function') player.playVideo();
-    if (typeof player.mute === 'function') player.mute();
-    if (typeof player.setVolume === 'function') player.setVolume(wanted);
-    logYoutubeVolume('load');
+    logYoutubeVolume('cue');
 }
 
 // DOM 元素
@@ -1444,7 +1462,7 @@ function handleStateUpdate(state) {
 
             if (!playDecision.apply) {
                 console.log('忽略較舊的換歌回聲:', state.youtubeState.currentIndex);
-            } else if (youtubePlayer && youtubePlayer.loadVideoById && newVideoId && shouldLoadVideo && videoActuallyChanged) {
+            } else if (youtubePlayer && (youtubePlayer.cueVideoById || youtubePlayer.loadVideoById) && newVideoId && shouldLoadVideo && videoActuallyChanged) {
                 console.log('遠端載入新影片:', newVideoId, '原因:', {
                     needModeSwitch: needModeSwitch,
                     videoChanged: videoActuallyChanged,
@@ -1457,7 +1475,6 @@ function handleStateUpdate(state) {
                 youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
                 markYoutubePlaybackWanted();
                 beginYoutubeVolumeHold();
-                if (youtubePlayer.playVideo) youtubePlayer.playVideo();
                 applyYoutubeVolumeMuted();
             } else if (!videoActuallyChanged) {
                 console.log('影片未改變，跳過重新載入:', {
@@ -2271,7 +2288,7 @@ function playYoutubeIndex(index, options) {
             armPendingPlayTimeout();
         }
         currentVideoIndex = index;
-        if (youtubePlayer && youtubePlayer.loadVideoById) {
+        if (youtubePlayer && (youtubePlayer.cueVideoById || youtubePlayer.loadVideoById)) {
             loadYoutubeVideoNow(youtubePlayer, playlist[index].id);
             if (snapshot && snapshot.videoId && playlist[index] && snapshot.videoId === playlist[index].id) {
                 setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 200);

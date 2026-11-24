@@ -6,7 +6,7 @@ const ts = require('typescript');
 
 const app = fs.readFileSync('radio-online-vanillaJS/app.js', 'utf8');
 const ast = ts.createSourceFile('app.js', app, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-const names = ['syncYoutubeVolume', 'armYoutubeVolumeChecks', 'loadYoutubeVideoNow', 'onPlayerStateChange'];
+const names = ['syncYoutubeVolume', 'armYoutubeVolumeChecks', 'loadYoutubeVideoNow', 'onPlayerStateChange', 'markYoutubePlaybackWanted', 'markYoutubePlaybackPaused', 'youtubePauseIsIntentional', 'youtubeShouldResume', 'resumeYoutubeFromBackground', 'noteUnexpectedYoutubePause', 'onYoutubeVisibilityChange'];
 const code = ast.statements.filter(function (node) {
     return ts.isFunctionDeclaration(node) && names.indexOf(node.name.text) !== -1;
 }).map(function (node) { return node.getText(ast); }).join('\n');
@@ -35,6 +35,11 @@ function run(saved, player) {
         getSavedVolume: function () { return saved; },
         youtubePlayer: player,
         youtubeVolumeTimers: [],
+        youtubeResumeTimer: null,
+        youtubeWantedPlaying: false,
+        youtubePauseIntent: null,
+        youtubeResumeCount: 0,
+        isYoutubeMode: true,
         setTimeout: function (fn, ms) { timers.push(ms); return timers.length; },
         clearTimeout: function () {},
         updatePlayPauseButton: function () {},

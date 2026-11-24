@@ -234,6 +234,7 @@ test('TV remote snapshots select B without pausing A; volume-only snapshots do n
         document: { querySelectorAll: () => [] },
         youtubeSection: { style: {} }, controlCard: { style: {} }, currentStationName: {},
         youtubePlayer: null, window: {}, volumeSyncLockUntil: 0,
+        markYoutubePlaybackPaused() {},
         audioPlayer: { pause() { pauses++; } },
         startRadioTransition: s => selected.push(s), stopRadioPlayback: () => { pauses++; },
         normalizeVolume: v => v, rememberVolume() {}, applyAudioVolume() {}, getSavedVolume: () => 0.5,

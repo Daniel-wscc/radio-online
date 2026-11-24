@@ -288,6 +288,12 @@ function syncYoutubeVolume() {
 }
 
 var youtubeVolumeTimers = [];
+var youtubeWantedPlaying = false;
+var youtubePauseIntent = null;
+var youtubeResumeCount = 0;
+var youtubeResumeTimer = null;
+var YOUTUBE_RESUME_MAX = 4;
+var YOUTUBE_RESUME_MS = 1000;
 
 function armYoutubeVolumeChecks() {
     var delays = [0, 250, 750, 1500];
@@ -299,8 +305,81 @@ function armYoutubeVolumeChecks() {
     }
 }
 
+function markYoutubePlaybackWanted() {
+    youtubeWantedPlaying = true;
+    youtubePauseIntent = null;
+    youtubeResumeCount = 0;
+    if (youtubeResumeTimer) {
+        clearTimeout(youtubeResumeTimer);
+        youtubeResumeTimer = null;
+    }
+}
+
+function markYoutubePlaybackPaused(reason) {
+    youtubeWantedPlaying = false;
+    youtubePauseIntent = reason || 'user';
+    youtubeResumeCount = 0;
+    if (youtubeResumeTimer) {
+        clearTimeout(youtubeResumeTimer);
+        youtubeResumeTimer = null;
+    }
+}
+
+function youtubePauseIsIntentional() {
+    return youtubePauseIntent === 'user' || youtubePauseIntent === 'sync';
+}
+
+function youtubeShouldResume() {
+    if (youtubePauseIsIntentional()) return false;
+    if (!youtubeWantedPlaying) return false;
+    if (!isYoutubeMode) return false;
+    if (!playlist || !playlist.length || currentVideoIndex < 0) return false;
+    return true;
+}
+
+function resumeYoutubeFromBackground() {
+    if (!youtubeShouldResume()) return;
+    if (!youtubePlayer || typeof youtubePlayer.playVideo !== 'function') return;
+    var player = youtubePlayer;
+    var wanted = Math.round(getSavedVolume() * 100);
+    if (typeof player.setVolume === 'function') player.setVolume(wanted);
+    syncYoutubeVolume();
+    player.playVideo();
+    if (typeof player.setVolume === 'function') player.setVolume(wanted);
+    if (wanted === 0) {
+        if (typeof player.mute === 'function') player.mute();
+    } else if (typeof player.unMute === 'function') {
+        player.unMute();
+    }
+    syncYoutubeVolume();
+    armYoutubeVolumeChecks();
+}
+
+function noteUnexpectedYoutubePause() {
+    if (!youtubeShouldResume()) return;
+    if (youtubeResumeCount >= YOUTUBE_RESUME_MAX) return;
+    youtubeResumeCount += 1;
+    if (youtubeResumeCount === 1) {
+        resumeYoutubeFromBackground();
+        return;
+    }
+    if (youtubeResumeTimer) return;
+    youtubeResumeTimer = setTimeout(function () {
+        youtubeResumeTimer = null;
+        resumeYoutubeFromBackground();
+    }, YOUTUBE_RESUME_MS);
+}
+
+function onYoutubeVisibilityChange() {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    if (!youtubeShouldResume()) return;
+    youtubeResumeCount = 0;
+    resumeYoutubeFromBackground();
+}
+
 function loadYoutubeVideoNow(player, videoId) {
     if (!player || typeof player.loadVideoById !== 'function' || !videoId) return;
+    markYoutubePlaybackWanted();
     var wanted = Math.round(getSavedVolume() * 100);
     if (typeof player.mute === 'function') player.mute();
     if (typeof player.setVolume === 'function') player.setVolume(wanted);
@@ -653,6 +732,7 @@ function setupEventListeners() {
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     document.addEventListener('mozfullscreenchange', handleFullscreenChange);
     document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+    document.addEventListener('visibilitychange', onYoutubeVisibilityChange);
 }
 
 // 獲取標籤顏色
@@ -683,6 +763,7 @@ function playStation(station) {
         isYoutubeMode = false;
         youtubeSection.style.display = 'none';
         // 停止 YouTube 播放
+        markYoutubePlaybackPaused('stop');
         if (youtubePlayer && youtubePlayer.stopVideo) {
             youtubePlayer.stopVideo();
         }
@@ -859,6 +940,7 @@ function handleStateUpdate(state) {
         if (!state.youtubeState.playlist || state.youtubeState.playlist.length === 0) {
             playlist = [];
             currentVideoIndex = -1;
+            markYoutubePlaybackPaused('stop');
             if (youtubePlayer && youtubePlayer.stopVideo) {
                 youtubePlayer.stopVideo();
             }
@@ -988,6 +1070,7 @@ function handleStateUpdate(state) {
                 loadYoutubeVideoNow(youtubePlayer, newVideoId);
             } else if (youtubePlayer && newVideoId && youtubePlayer.getPlayerState &&
                 youtubePlayer.getPlayerState() === YT.PlayerState.CUED) {
+                markYoutubePlaybackWanted();
                 syncYoutubeVolume();
                 if (youtubePlayer.playVideo) youtubePlayer.playVideo();
                 syncYoutubeVolume();
@@ -1011,6 +1094,7 @@ function handleStateUpdate(state) {
         // 電台模式處理
         isYoutubeMode = false;
         youtubeSection.style.display = 'none';
+        markYoutubePlaybackPaused('stop');
         if (youtubePlayer && youtubePlayer.stopVideo) {
             youtubePlayer.stopVideo();
         }
@@ -1613,11 +1697,16 @@ function toggleYoutubePlayback() {
     }
     var playing = typeof YT !== 'undefined' && YT.PlayerState && state === YT.PlayerState.PLAYING;
     if (playing && typeof youtubePlayer.pauseVideo === 'function') {
+        markYoutubePlaybackPaused('user');
         youtubePlayer.pauseVideo();
     } else if (currentVideoIndex < 0) {
         playYoutubeIndex(0);
     } else if (typeof youtubePlayer.playVideo === 'function') {
+        markYoutubePlaybackWanted();
+        syncYoutubeVolume();
         youtubePlayer.playVideo();
+        syncYoutubeVolume();
+        armYoutubeVolumeChecks();
     }
 }
 
@@ -1688,6 +1777,7 @@ function removeFromPlaylist(index) {
             playYoutubeIndex(Math.min(index, playlist.length - 1));
         } else {
             currentVideoIndex = -1;
+            markYoutubePlaybackPaused('stop');
             if (youtubePlayer && youtubePlayer.stopVideo) youtubePlayer.stopVideo();
             updatePlaylistUI();
         }
@@ -1702,7 +1792,8 @@ function removeFromPlaylist(index) {
 function clearYoutubePlaylist() {
     playlist = [];
     currentVideoIndex = -1;
-    if (youtubePlayer) {
+    markYoutubePlaybackPaused('stop');
+    if (youtubePlayer && youtubePlayer.stopVideo) {
         youtubePlayer.stopVideo();
     }
     updatePlaylistUI();
@@ -1715,12 +1806,21 @@ function onPlayerStateChange(event) {
     updatePlayPauseButton();
     var playerState = event && event.data;
     var states = (typeof YT !== 'undefined' && YT.PlayerState) ? YT.PlayerState : null;
+    var playingNow = (states && playerState === states.PLAYING) || playerState === 1;
+    var pausedNow = (states && playerState === states.PAUSED) || playerState === 2;
+    if (playingNow) {
+        markYoutubePlaybackWanted();
+    }
     if (states && (playerState === states.UNSTARTED || playerState === states.BUFFERING || playerState === states.PLAYING)) {
         syncYoutubeVolume();
         armYoutubeVolumeChecks();
     } else if (playerState === -1 || playerState === 3 || playerState === 1) {
         syncYoutubeVolume();
         armYoutubeVolumeChecks();
+    }
+    if (pausedNow) {
+        if (!youtubePauseIsIntentional()) noteUnexpectedYoutubePause();
+        return;
     }
     // 當視頻結束時
     if (playerState === (states ? states.ENDED : 0)) {
@@ -1855,6 +1955,7 @@ socket.on('playlistCleared', function (data) {
         lastSentPlaylist = [];
 
         // 停止 YouTube 播放
+        markYoutubePlaybackPaused('stop');
         if (youtubePlayer && youtubePlayer.stopVideo) {
             youtubePlayer.stopVideo();
         }

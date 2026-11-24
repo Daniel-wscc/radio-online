@@ -1257,6 +1257,7 @@ function handleStateUpdate(state) {
             // 更新播放清單
             playlist = state.youtubeState.playlist;
             if (playDecision.apply) {
+                if (currentVideoIndex !== state.youtubeState.currentIndex) clearYoutubeSkipNotice();
                 currentVideoIndex = state.youtubeState.currentIndex;
                 if (playDecision.clearPending) clearPendingPlay(false);
             } else {
@@ -1699,6 +1700,65 @@ var youtubeSkipIndex = -1;
 var youtubeSkipVideoId = null;
 var youtubeFailedPass = [];
 var youtubeSkipNoticeText = '';
+var youtubeSkipNoticeTimer = null;
+var youtubeSkipNoticeToken = 0;
+
+function scrubSkipStatusLeak() {
+    var node;
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    node = document.getElementById('youtubeInitStatus');
+    if (!node) return;
+    if (node.textContent === '這首無法播放，已自動跳過' || node.textContent === '這首無法播放，已停止自動跳過') {
+        node.textContent = '';
+        if (node.style) node.style.display = 'none';
+    }
+}
+
+function clearYoutubeSkipNotice() {
+    if (typeof youtubeSkipNoticeToken !== 'number') youtubeSkipNoticeToken = 0;
+    youtubeSkipNoticeToken += 1;
+    if (youtubeSkipNoticeTimer) {
+        clearTimeout(youtubeSkipNoticeTimer);
+        youtubeSkipNoticeTimer = null;
+    }
+    youtubeSkipNoticeText = '';
+    scrubSkipStatusLeak();
+    if (typeof document !== 'undefined' && document.getElementById) {
+        var node = document.getElementById('youtubeSkipNotice');
+        if (node) {
+            node.textContent = '';
+            if (node.style) node.style.display = 'none';
+        }
+    }
+}
+
+function setYoutubeSkipNotice(message) {
+    var node;
+    if (typeof youtubeSkipNoticeToken !== 'number') youtubeSkipNoticeToken = 0;
+    if (youtubeSkipNoticeTimer) {
+        clearTimeout(youtubeSkipNoticeTimer);
+        youtubeSkipNoticeTimer = null;
+    }
+    youtubeSkipNoticeText = message || '';
+    scrubSkipStatusLeak();
+    if (typeof document !== 'undefined' && document.getElementById) {
+        node = document.getElementById('youtubeSkipNotice');
+        if (node) {
+            node.textContent = youtubeSkipNoticeText;
+            if (node.style) node.style.display = youtubeSkipNoticeText ? 'block' : 'none';
+        }
+    }
+    if (youtubeSkipNoticeText) {
+        youtubeSkipNoticeToken += 1;
+        var token = youtubeSkipNoticeToken;
+        youtubeSkipNoticeTimer = setTimeout(function () {
+            if (token !== youtubeSkipNoticeToken) return;
+            youtubeSkipNoticeTimer = null;
+            clearYoutubeSkipNotice();
+        }, 3000);
+    }
+    radioDebug('yt-skip-notice', { message: youtubeSkipNoticeText });
+}
 
 function clearYoutubeSkipTimer() {
     if (youtubeSkipTimer) {
@@ -1714,25 +1774,6 @@ function youtubeIndexFailed(index) {
         if (youtubeFailedPass[i] === index) return true;
     }
     return false;
-}
-
-function setYoutubeSkipNotice(message) {
-    youtubeSkipNoticeText = message || '';
-    var ids = ['youtubeSkipNotice', 'youtubeInitStatus'];
-    var i;
-    var node;
-    if (typeof document !== 'undefined' && document.getElementById) {
-        for (i = 0; i < ids.length; i++) {
-            node = document.getElementById(ids[i]);
-            if (!node) continue;
-            node.textContent = youtubeSkipNoticeText;
-            if (node.style) node.style.display = youtubeSkipNoticeText ? 'block' : 'none';
-            if (node.className && node.className.indexOf('is-error') !== -1) {
-                node.className = node.className.replace(' is-error', '');
-            }
-        }
-    }
-    radioDebug('yt-skip-notice', { message: youtubeSkipNoticeText });
 }
 
 function scheduleYoutubeErrorSkip(code) {
@@ -1766,9 +1807,9 @@ function commitYoutubeErrorSkip(code) {
         radioDebug('yt-skip-stop', { code: code, index: currentVideoIndex, tried: youtubeFailedPass.length });
         return;
     }
-    setYoutubeSkipNotice('這首無法播放，已自動跳過');
     radioDebug('yt-skip', { code: code, from: currentVideoIndex, to: nextIndex });
     playYoutubeIndex(nextIndex, { fromEnd: true, fromIndex: currentVideoIndex });
+    setYoutubeSkipNotice('這首無法播放，已自動跳過');
 }
 
 // 添加 YouTube 相關事件監聽器
@@ -2096,6 +2137,7 @@ function playYoutubeIndex(index, options) {
         var fromIndex = options && typeof options.fromIndex === 'number' ? options.fromIndex : null;
         var snapshot = fromEnd ? null : capturePlaybackSnapshot();
         clearYoutubeSkipTimer();
+        clearYoutubeSkipNotice();
         if (!fromEnd) youtubeFailedPass = [];
         var playOp = null;
         if (window.RadioSyncClient && typeof RadioSyncClient.issueOp === 'function' && typeof syncSession !== 'undefined' && syncSession) {

@@ -634,12 +634,29 @@ img { max-width: 100%; }
     font-weight: 700;
 }
 .youtube-skip-notice {
-    margin: 0.35rem 0 0;
+    display: none;
+    position: fixed;
+    top: 1rem;
+    left: 50%;
+    z-index: 80;
+    max-width: 90%;
+    margin: 0;
+    padding: 0.55rem 1rem;
+    border-radius: 999px;
+    background: rgba(31, 41, 55, 0.92);
+    color: #ffffff;
     font-size: 0.875rem;
     line-height: 1.4;
-    color: var(--bc);
+    text-align: center;
+    pointer-events: none;
+    -webkit-transform: translateX(-50%);
+    transform: translateX(-50%);
 }
-html.is-tv .youtube-skip-notice { font-size: 1.15rem; }
+html.is-tv .youtube-skip-notice {
+    top: 1.25rem;
+    font-size: 1.35rem;
+    padding: 0.85rem 1.4rem;
+}
 .expanded-actions {
     display: flex;
     align-items: center;

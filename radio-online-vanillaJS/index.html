@@ -46,7 +46,7 @@
         </div>
         <div class="version-info">
             <div class="version-name" id="appTitle">芯禾電台</div>
-            <div class="version-meta"><span id="vanillaVersion">v3.1.22</span> - <span id="vanillaYear"></span></div>
+            <div class="version-meta"><span id="vanillaVersion">v3.1.23</span> - <span id="vanillaYear"></span></div>
             <script>document.getElementById('vanillaYear').textContent = new Date().getFullYear();</script>
         </div>
     </aside>
@@ -164,7 +164,6 @@
                     <div class="expanded-video">
                         <div class="video-target" id="videoTarget"></div>
                         <div class="video-caption"><div class="video-title" id="expandedVideoTitle"></div></div>
-                        <p id="youtubeSkipNotice" class="youtube-skip-notice" role="status" aria-live="polite"></p>
                         <div class="expanded-actions" id="expandedControlsHost"></div>
                     </div>
                         <div class="expanded-queue card">
@@ -219,6 +218,7 @@
         </div>
     </div>
     <div id="toastHost" class="toast-host pc-only"></div>
+    <p id="youtubeSkipNotice" class="youtube-skip-notice" role="status" aria-live="polite"></p>
 
     <!-- SOCKET_CLIENT -->
     <script src="vendor/socket.io/socket.io.min.js"></script>

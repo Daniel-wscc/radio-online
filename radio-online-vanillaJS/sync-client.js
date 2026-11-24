@@ -59,7 +59,8 @@
             clientId: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
             opId: 0,
             volumeOpId: 0,
-            stationOpId: 0
+            stationOpId: 0,
+            playOpId: 0
         };
     }
 
@@ -67,6 +68,7 @@
         session.opId += 1;
         if (field === 'volume') session.volumeOpId = session.opId;
         if (field === 'station') session.stationOpId = session.opId;
+        if (field === 'play') session.playOpId = session.opId;
         return { clientId: session.clientId, opId: session.opId };
     }
 
@@ -109,6 +111,36 @@
         };
     }
 
+    /* 連按下一首時，較舊的自己回聲不能把已經往前的索引拉回去。別人的更新仍然要套用。 */
+    function decidePlayIndexSync(opts) {
+        var pendingIndex = opts.pendingIndex;
+        var pendingOpId = opts.pendingOpId;
+        var incomingIndex = opts.incomingIndex;
+        var origin = opts.origin || null;
+        var clientId = opts.clientId;
+        if (pendingIndex === null || pendingIndex === undefined || !pendingOpId) {
+            return { apply: true, clearPending: false };
+        }
+        var own = !!(origin && origin.clientId && origin.clientId === clientId);
+        var opId = origin && typeof origin.opId === 'number' ? origin.opId : null;
+        if (own && opId !== null && opId < pendingOpId) {
+            return { apply: false, clearPending: false };
+        }
+        if (own && opId === pendingOpId) {
+            return { apply: true, clearPending: true };
+        }
+        if (origin && origin.clientId && !own) {
+            return { apply: true, clearPending: true };
+        }
+        if (incomingIndex === pendingIndex) {
+            return { apply: true, clearPending: true };
+        }
+        if (typeof incomingIndex === 'number' && incomingIndex < pendingIndex) {
+            return { apply: false, clearPending: false };
+        }
+        return { apply: true, clearPending: true };
+    }
+
     root.RadioSyncClient = {
         roundVolume: roundVolume,
         collectYoutubeImport: collectYoutubeImport,
@@ -119,6 +151,7 @@
         createSession: createSession,
         issueOp: issueOp,
         isOwnStaleEcho: isOwnStaleEcho,
-        decideVolumeSync: decideVolumeSync
+        decideVolumeSync: decideVolumeSync,
+        decidePlayIndexSync: decidePlayIndexSync
     };
 })(typeof window !== 'undefined' ? window : globalThis);

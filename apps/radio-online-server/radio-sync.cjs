@@ -209,6 +209,10 @@ function applyCommand(state, name, payload, ids) {
         youtube.currentVideoId = youtube.playlist[index].id;
         youtube.isYoutubeMode = true;
         next.isPlaying = false;
+        next.playOrigin = {
+            clientId: body && body.clientId ? String(body.clientId) : null,
+            opId: body && typeof body.opId === 'number' && isFinite(body.opId) ? body.opId : null
+        };
         changed = true;
     } else if (name === 'shuffleQueue') {
         if (youtube.playlist.length > 1) {

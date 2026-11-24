@@ -137,3 +137,40 @@ test('較舊的版號要捨棄，拖曳中的音量先暫存、放開後再套�
     assert.equal(released.volume, 0.89);
     assert.equal(released.deferredVolume, null);
 });
+
+test('連按下一首時，較舊的自己回聲不會把索引拉回去', () => {
+    const session = api.createSession();
+    const ops = [];
+    for (let i = 1; i <= 5; i++) ops.push(api.issueOp(session, 'play'));
+    let pending = 5;
+    let pendingOp = session.playOpId;
+    let shown = 5;
+    const ui = [shown];
+    for (let i = 1; i <= 5; i++) {
+        const decision = api.decidePlayIndexSync({
+            pendingIndex: pending,
+            pendingOpId: pendingOp,
+            clientId: session.clientId,
+            incomingIndex: i,
+            origin: { clientId: session.clientId, opId: ops[i - 1].opId }
+        });
+        if (decision.apply) {
+            shown = i;
+            if (decision.clearPending) {
+                pending = null;
+                pendingOp = 0;
+            }
+        }
+        ui.push(shown);
+    }
+    assert.deepEqual(ui, [5, 5, 5, 5, 5, 5]);
+    const remote = api.decidePlayIndexSync({
+        pendingIndex: 5,
+        pendingOpId: session.playOpId,
+        clientId: session.clientId,
+        incomingIndex: 2,
+        origin: { clientId: 'someone-else', opId: 9 }
+    });
+    assert.equal(remote.apply, true);
+    assert.equal(remote.clearPending, true);
+});

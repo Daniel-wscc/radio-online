@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
+const vm = require('node:vm');
 const { Server } = require('socket.io');
 const { io: ioClient } = require('socket.io-client');
 const Database = require('better-sqlite3');
@@ -238,5 +239,80 @@ test('自動跳過帶 fromIndex 時，只有第一台還停在原曲的請求會
     const chosen = store.apply('playIndex', { index: 2 });
     assert.equal(chosen.ok, true);
     assert.equal(store.getState().youtubeState.currentIndex, 2);
+    db.close();
+});
+
+test('快速連按下一首，延遲打亂回聲後兩台最後都停在第 5 首', async () => {
+    const { db } = tempDb();
+    const store = createRadioStore(db);
+    const items = [];
+    for (let i = 0; i < 6; i++) items.push({ videoId: 'song' + i + 'xxxxx', title: '歌' + (i + 1) });
+    assert.equal(store.apply('queueAddMany', { items }).ok, true);
+    assert.equal(store.apply('setMode', { mode: 'youtube' }).ok, true);
+    const live = await listen(store);
+    const a = await connect(live.port);
+    const b = await connect(live.port);
+    await until(() => a.states.length && b.states.length, '初始狀態');
+    const originalEmit = live.io.emit.bind(live.io);
+    live.io.emit = function (event, payload) {
+        const index = payload && payload.youtubeState ? payload.youtubeState.currentIndex : 0;
+        const delay = event === 'radioStateUpdate' ? (6 - index) * 25 : 0;
+        setTimeout(function () { originalEmit(event, payload); }, delay);
+    };
+    const source = fs.readFileSync(require('path').join(__dirname, '../radio-online-vanillaJS/sync-client.js'), 'utf8');
+    const context = vm.createContext({});
+    vm.runInContext(source, context);
+    const api = context.RadioSyncClient;
+    const session = api.createSession();
+    for (let i = 1; i <= 5; i++) {
+        const op = api.issueOp(session, 'play');
+        a.socket.emit('playIndex', { index: i, clientId: op.clientId, opId: op.opId });
+    }
+    function newest(states) {
+        return states.reduce(function (best, state) {
+            return !best || state.revision > best.revision ? state : best;
+        }, null);
+    }
+    await until(() => {
+        const left = newest(a.states);
+        const right = newest(b.states);
+        return left && right && left.youtubeState.currentIndex === 5 && right.youtubeState.currentIndex === 5;
+    }, '兩台停在第 5 首');
+    let applied = -1;
+    let pending = 5;
+    let pendingOp = session.playOpId;
+    let shown = 5;
+    const ui = [5];
+    a.states.forEach(function (state) {
+        if (api.isStaleRevision(applied, state.revision)) {
+            ui.push(shown);
+            return;
+        }
+        applied = api.nextAppliedRevision(applied, state.revision);
+        const decision = api.decidePlayIndexSync({
+            pendingIndex: pending,
+            pendingOpId: pendingOp,
+            clientId: session.clientId,
+            incomingIndex: state.youtubeState.currentIndex,
+            origin: state.playOrigin || null
+        });
+        if (decision.apply) {
+            shown = state.youtubeState.currentIndex;
+            if (decision.clearPending) {
+                pending = null;
+                pendingOp = 0;
+            }
+        }
+        ui.push(shown);
+    });
+    for (let i = 1; i < ui.length; i++) {
+        assert.equal(ui[i] >= ui[i - 1], true, '畫面索引倒退：' + ui.join(','));
+    }
+    assert.equal(ui[ui.length - 1], 5);
+    assert.equal(newest(b.states).youtubeState.currentIndex, 5);
+    a.socket.close();
+    b.socket.close();
+    live.io.close();
+    live.server.close();
     db.close();
 });

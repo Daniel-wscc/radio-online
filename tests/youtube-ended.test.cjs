@@ -9,8 +9,10 @@ const ast = ts.createSourceFile('app.js', app, ts.ScriptTarget.Latest, true, ts.
 const names = [
     'syncYoutubeVolume', 'armYoutubeVolumeChecks', 'markYoutubePlaybackWanted',
     'markYoutubePlaybackPaused', 'youtubePauseIsIntentional', 'youtubeShouldResume',
-    'youtubeIsNearEnd', 'readYoutubeVideoId', 'cancelYoutubeResume',
-    'resumeYoutubeFromBackground', 'noteUnexpectedYoutubePause', 'onPlayerStateChange'
+    'youtubeReachedEnd', 'readYoutubeVideoId', 'cancelYoutubeResume',
+    'resumeYoutubeFromBackground', 'noteUnexpectedYoutubePause', 'onPlayerStateChange',
+    'advanceYoutubeFromEnd', 'clearBackgroundKeeper', 'ensureBackgroundKeeper',
+    'checkYoutubeEnd', 'radioDebug'
 ];
 const code = ast.statements.filter(function (node) {
     return ts.isFunctionDeclaration(node) && names.indexOf(node.name.text) !== -1;
@@ -47,6 +49,7 @@ function boot(options) {
         youtubeResumeTimer: null,
         youtubeResumeEpoch: 0,
         youtubeBlockEnded: false,
+        youtubeBackgroundTimer: null,
         YOUTUBE_RESUME_MAX: 4,
         YOUTUBE_RESUME_MS: 1000,
         isYoutubeMode: true,
@@ -70,8 +73,18 @@ function boot(options) {
     return { context: context, calls: calls, timers: timers, player: player };
 }
 
+test('播放中接近片尾時，即使沒有 ENDED 也只推進一首', () => {
+    const env = boot({ current: 199.4, duration: 200, videoId: 'aaaaaaaaaaa', index: 0 });
+    env.context.checkYoutubeEnd();
+    env.context.checkYoutubeEnd();
+    assert.equal(env.calls.length, 1);
+    assert.equal(env.calls[0].index, 1);
+    assert.equal(env.calls[0].fromEnd, true);
+    assert.equal(env.player.log.indexOf('play'), -1);
+});
+
 test('片尾 PAUSED 接著 ENDED 只推進一首，不會被恢復重播', () => {
-    const env = boot({ current: 199, duration: 200, videoId: 'aaaaaaaaaaa', index: 0 });
+    const env = boot({ current: 199.5, duration: 200, videoId: 'aaaaaaaaaaa', index: 0 });
     env.context.onPlayerStateChange({ data: 2 });
     env.context.onPlayerStateChange({ data: 0 });
     env.context.onPlayerStateChange({ data: 0 });

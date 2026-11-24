@@ -6,7 +6,12 @@ const ts = require('typescript');
 
 const app = fs.readFileSync('radio-online-vanillaJS/app.js', 'utf8');
 const ast = ts.createSourceFile('app.js', app, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-const names = ['syncYoutubeVolume', 'armYoutubeVolumeChecks', 'loadYoutubeVideoNow', 'onPlayerStateChange', 'markYoutubePlaybackWanted', 'markYoutubePlaybackPaused', 'youtubePauseIsIntentional', 'youtubeShouldResume', 'resumeYoutubeFromBackground', 'noteUnexpectedYoutubePause', 'onYoutubeVisibilityChange'];
+const names = [
+    'syncYoutubeVolume', 'armYoutubeVolumeChecks', 'loadYoutubeVideoNow', 'onPlayerStateChange',
+    'markYoutubePlaybackWanted', 'markYoutubePlaybackPaused', 'youtubePauseIsIntentional',
+    'youtubeShouldResume', 'resumeYoutubeFromBackground', 'noteUnexpectedYoutubePause',
+    'onYoutubeVisibilityChange', 'youtubeReachedEnd', 'readYoutubeVideoId', 'radioDebug'
+];
 const code = ast.statements.filter(function (node) {
     return ts.isFunctionDeclaration(node) && names.indexOf(node.name.text) !== -1;
 }).map(function (node) { return node.getText(ast); }).join('\n');

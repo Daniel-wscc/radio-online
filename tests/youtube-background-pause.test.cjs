@@ -10,7 +10,8 @@ const names = [
     'syncYoutubeVolume', 'armYoutubeVolumeChecks', 'loadYoutubeVideoNow',
     'markYoutubePlaybackWanted', 'markYoutubePlaybackPaused', 'youtubePauseIsIntentional',
     'youtubeShouldResume', 'resumeYoutubeFromBackground', 'noteUnexpectedYoutubePause',
-    'youtubeIsNearEnd', 'cancelYoutubeResume', 'readYoutubeVideoId',
+    'youtubeReachedEnd', 'cancelYoutubeResume', 'readYoutubeVideoId',
+    'advanceYoutubeFromEnd', 'clearBackgroundKeeper', 'ensureBackgroundKeeper', 'radioDebug',
     'onYoutubeVisibilityChange', 'onPlayerStateChange', 'toggleYoutubePlayback'
 ];
 const code = ast.statements.filter(function (node) {
@@ -48,6 +49,7 @@ function boot(options) {
         youtubeResumeTimer: null,
         youtubeResumeEpoch: 0,
         youtubeBlockEnded: false,
+        youtubeBackgroundTimer: null,
         YOUTUBE_RESUME_MAX: 4,
         YOUTUBE_RESUME_MS: 1000,
         isYoutubeMode: true,

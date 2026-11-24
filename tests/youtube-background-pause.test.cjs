@@ -10,6 +10,7 @@ const names = [
     'syncYoutubeVolume', 'armYoutubeVolumeChecks', 'loadYoutubeVideoNow',
     'markYoutubePlaybackWanted', 'markYoutubePlaybackPaused', 'youtubePauseIsIntentional',
     'youtubeShouldResume', 'resumeYoutubeFromBackground', 'noteUnexpectedYoutubePause',
+    'youtubeIsNearEnd', 'cancelYoutubeResume', 'readYoutubeVideoId',
     'onYoutubeVisibilityChange', 'onPlayerStateChange', 'toggleYoutubePlayback'
 ];
 const code = ast.statements.filter(function (node) {
@@ -45,6 +46,8 @@ function boot(options) {
         youtubePauseIntent: options.intent || null,
         youtubeResumeCount: 0,
         youtubeResumeTimer: null,
+        youtubeResumeEpoch: 0,
+        youtubeBlockEnded: false,
         YOUTUBE_RESUME_MAX: 4,
         YOUTUBE_RESUME_MS: 1000,
         isYoutubeMode: true,

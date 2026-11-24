@@ -292,6 +292,8 @@ var youtubeWantedPlaying = false;
 var youtubePauseIntent = null;
 var youtubeResumeCount = 0;
 var youtubeResumeTimer = null;
+var youtubeResumeEpoch = 0;
+var youtubeBlockEnded = false;
 var YOUTUBE_RESUME_MAX = 4;
 var YOUTUBE_RESUME_MS = 1000;
 
@@ -337,8 +339,41 @@ function youtubeShouldResume() {
     return true;
 }
 
+function youtubeIsNearEnd() {
+    if (!youtubePlayer) return false;
+    try {
+        var duration = typeof youtubePlayer.getDuration === 'function' ? youtubePlayer.getDuration() : 0;
+        var current = typeof youtubePlayer.getCurrentTime === 'function' ? youtubePlayer.getCurrentTime() : 0;
+        if (typeof duration !== 'number' || typeof current !== 'number') return false;
+        if (!(duration > 0) || isNaN(duration) || isNaN(current)) return false;
+        return current >= duration - 1;
+    } catch (error) {
+        return false;
+    }
+}
+
+function readYoutubeVideoId() {
+    if (!youtubePlayer || typeof youtubePlayer.getVideoData !== 'function') return null;
+    try {
+        var data = youtubePlayer.getVideoData();
+        return data && data.video_id ? data.video_id : null;
+    } catch (error) {
+        return null;
+    }
+}
+
+function cancelYoutubeResume() {
+    youtubeResumeEpoch += 1;
+    youtubeResumeCount = YOUTUBE_RESUME_MAX;
+    if (youtubeResumeTimer) {
+        clearTimeout(youtubeResumeTimer);
+        youtubeResumeTimer = null;
+    }
+}
+
 function resumeYoutubeFromBackground() {
     if (!youtubeShouldResume()) return;
+    if (youtubeIsNearEnd()) return;
     if (!youtubePlayer || typeof youtubePlayer.playVideo !== 'function') return;
     var player = youtubePlayer;
     var wanted = Math.round(getSavedVolume() * 100);
@@ -356,6 +391,10 @@ function resumeYoutubeFromBackground() {
 }
 
 function noteUnexpectedYoutubePause() {
+    if (youtubeIsNearEnd()) {
+        cancelYoutubeResume();
+        return;
+    }
     if (!youtubeShouldResume()) return;
     if (youtubeResumeCount >= YOUTUBE_RESUME_MAX) return;
     youtubeResumeCount += 1;
@@ -364,8 +403,10 @@ function noteUnexpectedYoutubePause() {
         return;
     }
     if (youtubeResumeTimer) return;
+    var epoch = youtubeResumeEpoch;
     youtubeResumeTimer = setTimeout(function () {
         youtubeResumeTimer = null;
+        if (epoch !== youtubeResumeEpoch) return;
         resumeYoutubeFromBackground();
     }, YOUTUBE_RESUME_MS);
 }
@@ -379,6 +420,7 @@ function onYoutubeVisibilityChange() {
 
 function loadYoutubeVideoNow(player, videoId) {
     if (!player || typeof player.loadVideoById !== 'function' || !videoId) return;
+    youtubeBlockEnded = true;
     markYoutubePlaybackWanted();
     var wanted = Math.round(getSavedVolume() * 100);
     if (typeof player.mute === 'function') player.mute();
@@ -1752,14 +1794,16 @@ function updatePlayPauseButton() {
 }
 
 // 播放指定索引的視頻
-function playYoutubeIndex(index) {
+function playYoutubeIndex(index, options) {
     if (index >= 0 && index < playlist.length) {
-        // 切換前記錄播放位置（若是同一支影片，切換後恢復）
-        var snapshot = capturePlaybackSnapshot();
+        var fromEnd = !!(options && options.fromEnd);
+        var snapshot = fromEnd ? null : capturePlaybackSnapshot();
         currentVideoIndex = index;
         if (youtubePlayer && youtubePlayer.loadVideoById) {
             loadYoutubeVideoNow(youtubePlayer, playlist[index].id);
-            setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 200);
+            if (snapshot && snapshot.videoId && playlist[index] && snapshot.videoId === playlist[index].id) {
+                setTimeout(function () { restorePlaybackSnapshot(snapshot); }, 200);
+            }
         }
         updatePlaylistUI();
         if (socket) socket.emit('playIndex', { index: index, itemId: playlist[index].itemId || null });
@@ -1808,7 +1852,9 @@ function onPlayerStateChange(event) {
     var states = (typeof YT !== 'undefined' && YT.PlayerState) ? YT.PlayerState : null;
     var playingNow = (states && playerState === states.PLAYING) || playerState === 1;
     var pausedNow = (states && playerState === states.PAUSED) || playerState === 2;
+    var endedNow = states ? playerState === states.ENDED : playerState === 0;
     if (playingNow) {
+        youtubeBlockEnded = false;
         markYoutubePlaybackWanted();
     }
     if (states && (playerState === states.UNSTARTED || playerState === states.BUFFERING || playerState === states.PLAYING)) {
@@ -1822,21 +1868,24 @@ function onPlayerStateChange(event) {
         if (!youtubePauseIsIntentional()) noteUnexpectedYoutubePause();
         return;
     }
-    // 當視頻結束時
-    if (playerState === (states ? states.ENDED : 0)) {
-        // 記錄當前的全螢幕狀態
+    if (endedNow) {
+        cancelYoutubeResume();
         wasFullscreen = !!(document.fullscreenElement ||
             document.webkitFullscreenElement ||
             document.mozFullScreenElement ||
             document.msFullscreenElement);
-
-        if (currentVideoIndex < playlist.length - 1) {
-            playYoutubeIndex(currentVideoIndex + 1);
-        } else {
-            // 播放列表結束時，從頭開始播放
-            playYoutubeIndex(0);
-        }
-    } else if (states && playerState === states.PLAYING && wasFullscreen) {
+        if (youtubeBlockEnded) return;
+        if (!playlist || !playlist.length || currentVideoIndex < 0) return;
+        var endedId = readYoutubeVideoId();
+        var currentItem = playlist[currentVideoIndex];
+        var currentId = currentItem ? currentItem.id : null;
+        if (endedId && currentId && endedId !== currentId) return;
+        var nextIndex = currentVideoIndex < playlist.length - 1 ? currentVideoIndex + 1 : 0;
+        youtubeBlockEnded = true;
+        playYoutubeIndex(nextIndex, { fromEnd: true });
+        return;
+    }
+    if (states && playerState === states.PLAYING && wasFullscreen) {
         try {
             var elem = document.documentElement;
             if (elem.requestFullscreen) {
